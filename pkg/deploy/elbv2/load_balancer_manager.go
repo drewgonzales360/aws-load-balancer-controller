@@ -369,10 +369,7 @@ func (m *defaultLoadBalancerManager) SetAWSLoadBalancerGauge(resName string, res
 		"exists", exists,
 	)
 
-	g, err := m.awsLoadBalancerGauge.GetMetricWith(labels)
-	if err != nil {
-		m.logger.Error(err, "could not find metric")
-	}
+	g := m.awsLoadBalancerGauge.With(labels)
 
 	m.logger.Info("found gauge", "gauge", g)
 	value := float64(0)
