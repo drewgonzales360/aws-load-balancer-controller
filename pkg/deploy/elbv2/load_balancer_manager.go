@@ -88,7 +88,7 @@ func (m *defaultLoadBalancerManager) Create(ctx context.Context, resLB *elbv2mod
 	m.logger.Info("creating loadBalancer",
 		"stackID", resLB.Stack().StackID(),
 		"resourceID", resLB.ID())
-	m.logger.Info("emitting metric",
+	m.logger.Info("creating metric",
 		"stack-name", resLB.Stack().StackID().Name,
 		"stack-namespace", resLB.Stack().StackID().Namespace,
 		"aws-lb-name", resLB.Spec.Name,
@@ -133,7 +133,7 @@ func (m *defaultLoadBalancerManager) Update(ctx context.Context, resLB *elbv2mod
 	if err := m.checkSDKLoadBalancerWithCOIPv4Pool(ctx, resLB, sdkLB); err != nil {
 		return elbv2model.LoadBalancerStatus{}, err
 	}
-	m.logger.Info("emitting metric",
+	m.logger.Info("updating metric",
 		"stack-name", resLB.Stack().StackID().Name,
 		"stack-namespace", resLB.Stack().StackID().Namespace,
 		"aws-lb-name", resLB.Spec.Name,
@@ -159,13 +159,13 @@ func (m *defaultLoadBalancerManager) Delete(ctx context.Context, sdkLB LoadBalan
 		// This should be a warning
 		m.logger.Error(err, "could not parse stack from load balancer tags")
 	}
-	m.logger.Info("emitting metric",
+	m.logger.Info("deleting metric",
 		"stack-name", stackName,
 		"stack-namespace", stackNamespace,
 		"aws-lb-name", *sdkLB.LoadBalancer.LoadBalancerName,
 		"aws-lb-type", *sdkLB.LoadBalancer.Type,
 	)
-	m.SetAWSLoadBalancerGauge(stackName, stackNamespace, *sdkLB.LoadBalancer.LoadBalancerName, *sdkLB.LoadBalancer.Type, true)
+	m.SetAWSLoadBalancerGauge(stackName, stackNamespace, *sdkLB.LoadBalancer.LoadBalancerName, *sdkLB.LoadBalancer.Type, false)
 	return nil
 }
 
@@ -361,12 +361,20 @@ func (m *defaultLoadBalancerManager) SetAWSLoadBalancerGauge(resName string, res
 		lbGaugeLabelAWSLoadBalancerName:  awsLoadBalancerName,
 		lbGaugeLabelAWSLoadBalancerType:  awsLoadBalancerType,
 	}
+	m.logger.Info("emitting metric",
+		"stack-name", resName,
+		"stack-namespace", resNamespace,
+		"aws-lb-name", awsLoadBalancerName,
+		"aws-lb-type", awsLoadBalancerType,
+		"exists", exists,
+	)
 
 	g, err := m.awsLoadBalancerGauge.GetMetricWith(labels)
 	if err != nil {
 		m.logger.Error(err, "could not find metric")
 	}
 
+	m.logger.Info("found gauge", "gauge", g)
 	value := float64(0)
 	if exists {
 		value = 1
