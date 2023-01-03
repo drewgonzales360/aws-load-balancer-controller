@@ -360,11 +360,13 @@ func getNameFromTags(tags map[string]string) (string, string, error) {
 	stack, ok := tags["ingress.k8s.aws/stack"]
 	if ok {
 		parts := strings.Split(stack, "/")
+		// Implicit ingressGroups will return the ingress groupname.
 		if len(parts) != 2 {
-			return "", "", fmt.Errorf("could not parse value of ingress.k8s.aws/stack")
+			return stack, "", nil
 		}
 		return parts[0], parts[1], nil
 	}
+
 	stack, ok = tags["service.k8s.aws/stack"]
 	if ok {
 		parts := strings.Split(stack, "/")
