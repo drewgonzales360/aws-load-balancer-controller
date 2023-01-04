@@ -372,11 +372,17 @@ func (m *defaultLoadBalancerManager) SetAWSLoadBalancerGauge(resName string, res
 	g := m.awsLoadBalancerGauge.With(labels)
 
 	m.logger.Info("found gauge", "gauge", g)
-	value := float64(0)
-	if exists {
-		value = 1
-	}
+	value := float64(1)
 	g.Set(value)
+	m.logger.Info("set gauge value",
+		"stack-name", resName,
+		"stack-namespace", resNamespace,
+		"aws-lb-name", awsLoadBalancerName,
+		"aws-lb-type", awsLoadBalancerType,
+		"exists", exists,
+		"value", value,
+	)
+
 }
 
 func getNameFromTags(tags map[string]string) (string, string, error) {
