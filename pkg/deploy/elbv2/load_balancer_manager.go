@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
 	awssdk "github.com/aws/aws-sdk-go/aws"
 	elbv2sdk "github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/go-logr/logr"
@@ -66,12 +65,7 @@ func (m *defaultLoadBalancerManager) Create(ctx context.Context, resLB *elbv2mod
 	m.logger.Info("creating loadBalancer",
 		"stackID", resLB.Stack().StackID(),
 		"resourceID", resLB.ID())
-	m.logger.Info("creating metric",
-		"stack-name", resLB.Stack().StackID().Name,
-		"stack-namespace", resLB.Stack().StackID().Namespace,
-		"aws-lb-name", resLB.Spec.Name,
-		"aws-lb-type", string(resLB.Spec.Type),
-	)
+
 	m.SetAWSLoadBalancerGauge(resLB.Stack().StackID().Name, resLB.Stack().StackID().Namespace, resLB.Spec.Name, string(resLB.Spec.Type), true)
 	resp, err := m.elbv2Client.CreateLoadBalancerWithContext(ctx, req)
 	if err != nil {
@@ -339,28 +333,13 @@ func (m *defaultLoadBalancerManager) SetAWSLoadBalancerGauge(resName string, res
 		runtime.LbGaugeLabelAWSLoadBalancerName:  awsLoadBalancerName,
 		runtime.LbGaugeLabelAWSLoadBalancerType:  awsLoadBalancerType,
 	}
-	m.logger.Info("emitting metric",
-		"stack-name", resName,
-		"stack-namespace", resNamespace,
-		"aws-lb-name", awsLoadBalancerName,
-		"aws-lb-type", awsLoadBalancerType,
-		"exists", exists,
-	)
-
 	g := m.awsLoadBalancerGauge.With(labels)
 
-	m.logger.Info("found gauge", "gauge", g)
-	value := float64(1)
+	value := float64(0)
+	if exists {
+		value = 1
+	}
 	g.Set(value)
-	m.logger.Info("set gauge value",
-		"stack-name", resName,
-		"stack-namespace", resNamespace,
-		"aws-lb-name", awsLoadBalancerName,
-		"aws-lb-type", awsLoadBalancerType,
-		"exists", exists,
-		"value", value,
-	)
-
 }
 
 func getNameFromTags(tags map[string]string) (string, string, error) {
