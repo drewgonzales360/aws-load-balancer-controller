@@ -14,13 +14,7 @@ import (
 	"sigs.k8s.io/aws-load-balancer-controller/pkg/deploy/tracking"
 	coremodel "sigs.k8s.io/aws-load-balancer-controller/pkg/model/core"
 	elbv2model "sigs.k8s.io/aws-load-balancer-controller/pkg/model/elbv2"
-)
-
-const (
-	lbGaugeLabelK8sResourceName      = "k8s_resource_name"
-	lbGaugeLabelK8sResourceNamespace = "k8s_resource_namespace"
-	lbGaugeLabelAWSLoadBalancerName  = "aws_load_balancer_name"
-	lbGaugeLabelAWSLoadBalancerType  = "aws_load_balancer_type"
+	"sigs.k8s.io/aws-load-balancer-controller/pkg/runtime"
 )
 
 // LoadBalancerManager is responsible for create/update/delete LoadBalancer resources.
@@ -34,23 +28,7 @@ type LoadBalancerManager interface {
 
 // NewDefaultLoadBalancerManager constructs new defaultLoadBalancerManager.
 func NewDefaultLoadBalancerManager(elbv2Client services.ELBV2, trackingProvider tracking.Provider,
-	taggingManager TaggingManager, externalManagedTags []string, logger logr.Logger, metricsRegisterer prometheus.Registerer) *defaultLoadBalancerManager {
-
-	loadBalancerGauge := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "managed_aws_load_balancers",
-			Help: "Metric to track what Kubernetes resources that created AWS resources",
-		},
-		[]string{
-			lbGaugeLabelK8sResourceName,
-			lbGaugeLabelK8sResourceNamespace,
-			lbGaugeLabelAWSLoadBalancerName,
-			lbGaugeLabelAWSLoadBalancerType,
-		},
-	)
-	if err := metricsRegisterer.Register(loadBalancerGauge); err != nil {
-		logger.Error(err, "could not create load balancer metrics")
-	}
+	taggingManager TaggingManager, externalManagedTags []string, logger logr.Logger, loadBalancerGauge *prometheus.GaugeVec) *defaultLoadBalancerManager {
 
 	return &defaultLoadBalancerManager{
 		elbv2Client:          elbv2Client,
@@ -356,10 +334,10 @@ func buildResLoadBalancerStatus(sdkLB LoadBalancerWithTags) elbv2model.LoadBalan
 
 func (m *defaultLoadBalancerManager) SetAWSLoadBalancerGauge(resName string, resNamespace string, awsLoadBalancerName string, awsLoadBalancerType string, exists bool) {
 	labels := prometheus.Labels{
-		lbGaugeLabelK8sResourceName:      resName,
-		lbGaugeLabelK8sResourceNamespace: resNamespace,
-		lbGaugeLabelAWSLoadBalancerName:  awsLoadBalancerName,
-		lbGaugeLabelAWSLoadBalancerType:  awsLoadBalancerType,
+		runtime.LbGaugeLabelK8sResourceName:      resName,
+		runtime.LbGaugeLabelK8sResourceNamespace: resNamespace,
+		runtime.LbGaugeLabelAWSLoadBalancerName:  awsLoadBalancerName,
+		runtime.LbGaugeLabelAWSLoadBalancerType:  awsLoadBalancerType,
 	}
 	m.logger.Info("emitting metric",
 		"stack-name", resName,
