@@ -3,19 +3,25 @@ package k8s
 import (
 	"context"
 	"errors"
+	"time"
+
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"time"
 )
 
 const (
 	resourceTypePods        = "pods"
 	waitCacheSyncPollPeriod = 2 * time.Second
+)
+
+var (
+	ListWatchTimeoutSeconds int64 = 300
 )
 
 // PodInfoRepo provides access to pod information within cluster.
@@ -34,7 +40,12 @@ type PodInfoRepo interface {
 //   - if watchNamespace is not "", this repo monitors pods in specific namespace
 func NewDefaultPodInfoRepo(getter cache.Getter, watchNamespace string, logger logr.Logger) *defaultPodInfoRepo {
 	store := NewConversionStore(podInfoConversionFunc, podInfoKeyFunc)
-	lw := cache.NewListWatchFromClient(getter, resourceTypePods, watchNamespace, fields.Everything())
+	lw := cache.NewFilteredListWatchFromClient(getter, resourceTypePods, watchNamespace, func(options *metav1.ListOptions) {
+		options.FieldSelector = fields.Everything().String()
+		options.ResourceVersion = ""
+		options.Limit = 1000
+		options.TimeoutSeconds = &ListWatchTimeoutSeconds
+	})
 	rt := cache.NewReflector(lw, &corev1.Pod{}, store, 0)
 
 	repo := &defaultPodInfoRepo{
@@ -93,10 +104,10 @@ func (r *defaultPodInfoRepo) Start(ctx context.Context) error {
 
 // WaitForCacheSync waits for the initial sync of pod information repository.
 func (r *defaultPodInfoRepo) WaitForCacheSync(ctx context.Context) error {
-	return wait.PollImmediateUntil(waitCacheSyncPollPeriod, func() (bool, error) {
+	return wait.PollUntilContextCancel(ctx, waitCacheSyncPollPeriod, true, func(_ context.Context) (bool, error) {
 		lastSyncResourceVersion := r.rt.LastSyncResourceVersion()
 		return lastSyncResourceVersion != "", nil
-	}, ctx.Done())
+	})
 }
 
 // podInfoKeyFunc computes the store key per PodInfo object.

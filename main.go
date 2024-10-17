@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"os"
 
 	elbv2deploy "sigs.k8s.io/aws-load-balancer-controller/pkg/deploy/elbv2"
@@ -180,7 +181,7 @@ func main() {
 			os.Exit(1)
 		}
 	}()
-	if err := podInfoRepo.WaitForCacheSync(ctx); err != nil {
+	if err := podInfoRepo.WaitForCacheSync(context.Background()); err != nil {
 		setupLog.Error(err, "problem wait for podInfo repo sync")
 		os.Exit(1)
 	}
