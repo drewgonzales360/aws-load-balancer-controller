@@ -2,11 +2,19 @@ package elbv2
 
 import (
 	"context"
-	awssdk "github.com/aws/aws-sdk-go/aws"
-	elbv2sdk "github.com/aws/aws-sdk-go/service/elbv2"
+	"crypto/rand"
+	"fmt"
+	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/google/uuid"
+	"math/big"
+	"strings"
+	"testing"
+
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	elbv2sdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	"github.com/go-logr/logr"
 	"github.com/golang/mock/gomock"
 	"sigs.k8s.io/aws-load-balancer-controller/pkg/aws/services"
-	"testing"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +33,7 @@ func Test_targetGroupBindingValidator_ValidateCreate(t *testing.T) {
 	targetGroupIPAddressTypeIPv6 := elbv2api.TargetGroupIPAddressTypeIPv6
 	type describeTargetGroupsAsListCall struct {
 		req  *elbv2sdk.DescribeTargetGroupsInput
-		resp []*elbv2sdk.TargetGroup
+		resp []elbv2types.TargetGroup
 		err  error
 	}
 
@@ -37,6 +45,7 @@ func Test_targetGroupBindingValidator_ValidateCreate(t *testing.T) {
 	}
 	instanceTargetType := elbv2api.TargetTypeInstance
 	ipTargetType := elbv2api.TargetTypeIP
+	clusterVpcID := "vpc-123456ab"
 	tests := []struct {
 		name    string
 		fields  fields
@@ -61,12 +70,12 @@ func Test_targetGroupBindingValidator_ValidateCreate(t *testing.T) {
 				describeTargetGroupsAsListCalls: []describeTargetGroupsAsListCall{
 					{
 						req: &elbv2sdk.DescribeTargetGroupsInput{
-							TargetGroupArns: awssdk.StringSlice([]string{"tg-2"}),
+							TargetGroupArns: []string{"tg-2"},
 						},
-						resp: []*elbv2sdk.TargetGroup{
+						resp: []elbv2types.TargetGroup{
 							{
 								TargetGroupArn: awssdk.String("tg-2"),
-								TargetType:     awssdk.String("instance"),
+								TargetType:     elbv2types.TargetTypeEnum("instance"),
 							},
 						},
 					},
@@ -100,12 +109,12 @@ func Test_targetGroupBindingValidator_ValidateCreate(t *testing.T) {
 				describeTargetGroupsAsListCalls: []describeTargetGroupsAsListCall{
 					{
 						req: &elbv2sdk.DescribeTargetGroupsInput{
-							TargetGroupArns: awssdk.StringSlice([]string{"tg-2"}),
+							TargetGroupArns: []string{"tg-2"},
 						},
-						resp: []*elbv2sdk.TargetGroup{
+						resp: []elbv2types.TargetGroup{
 							{
 								TargetGroupArn: awssdk.String("tg-2"),
-								TargetType:     awssdk.String("instance"),
+								TargetType:     elbv2types.TargetTypeEnumInstance,
 							},
 						},
 					},
@@ -128,13 +137,13 @@ func Test_targetGroupBindingValidator_ValidateCreate(t *testing.T) {
 				describeTargetGroupsAsListCalls: []describeTargetGroupsAsListCall{
 					{
 						req: &elbv2sdk.DescribeTargetGroupsInput{
-							TargetGroupArns: awssdk.StringSlice([]string{"tg-2"}),
+							TargetGroupArns: []string{"tg-2"},
 						},
-						resp: []*elbv2sdk.TargetGroup{
+						resp: []elbv2types.TargetGroup{
 							{
 								TargetGroupArn: awssdk.String("tg-2"),
-								TargetType:     awssdk.String("instance"),
-								IpAddressType:  awssdk.String("ipv4"),
+								TargetType:     elbv2types.TargetTypeEnumInstance,
+								IpAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv4,
 							},
 						},
 					},
@@ -157,13 +166,13 @@ func Test_targetGroupBindingValidator_ValidateCreate(t *testing.T) {
 				describeTargetGroupsAsListCalls: []describeTargetGroupsAsListCall{
 					{
 						req: &elbv2sdk.DescribeTargetGroupsInput{
-							TargetGroupArns: awssdk.StringSlice([]string{"tg-2"}),
+							TargetGroupArns: []string{"tg-2"},
 						},
-						resp: []*elbv2sdk.TargetGroup{
+						resp: []elbv2types.TargetGroup{
 							{
 								TargetGroupArn: awssdk.String("tg-2"),
-								TargetType:     awssdk.String("instance"),
-								IpAddressType:  awssdk.String("ipv6"),
+								TargetType:     elbv2types.TargetTypeEnumInstance,
+								IpAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv6,
 							},
 						},
 					},
@@ -179,6 +188,94 @@ func Test_targetGroupBindingValidator_ValidateCreate(t *testing.T) {
 			},
 			wantErr: errors.New("invalid IP address type ipv6 for TargetGroup tg-2"),
 		},
+		{
+			name: "VpcID in spec matches with TG vpc",
+			fields: fields{
+				describeTargetGroupsAsListCalls: []describeTargetGroupsAsListCall{
+					{
+						req: &elbv2sdk.DescribeTargetGroupsInput{
+							TargetGroupArns: []string{"tg-2"},
+						},
+						resp: []elbv2types.TargetGroup{
+							{
+								TargetGroupArn: awssdk.String("tg-2"),
+								TargetType:     elbv2types.TargetTypeEnumInstance,
+								IpAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+								VpcId:          &clusterVpcID,
+							},
+						},
+					},
+					{
+						req: &elbv2sdk.DescribeTargetGroupsInput{
+							TargetGroupArns: []string{"tg-2"},
+						},
+						resp: []elbv2types.TargetGroup{
+							{
+								TargetGroupArn: awssdk.String("tg-2"),
+								TargetType:     elbv2types.TargetTypeEnumInstance,
+								IpAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+								VpcId:          &clusterVpcID,
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						TargetType:     &instanceTargetType,
+						IPAddressType:  &targetGroupIPAddressTypeIPv6,
+						VpcID:          clusterVpcID,
+					},
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "VpcID provided doesnt match TG VpcID mismatch",
+			fields: fields{
+				describeTargetGroupsAsListCalls: []describeTargetGroupsAsListCall{
+					{
+						req: &elbv2sdk.DescribeTargetGroupsInput{
+							TargetGroupArns: []string{"tg-2"},
+						},
+						resp: []elbv2types.TargetGroup{
+							{
+								TargetGroupArn: awssdk.String("tg-2"),
+								TargetType:     elbv2types.TargetTypeEnumInstance,
+								IpAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+								VpcId:          &clusterVpcID,
+							},
+						},
+					},
+					{
+						req: &elbv2sdk.DescribeTargetGroupsInput{
+							TargetGroupArns: []string{"tg-2"},
+						},
+						resp: []elbv2types.TargetGroup{
+							{
+								TargetGroupArn: awssdk.String("tg-2"),
+								TargetType:     elbv2types.TargetTypeEnumInstance,
+								IpAddressType:  elbv2types.TargetGroupIpAddressTypeEnumIpv6,
+								VpcId:          &clusterVpcID,
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						TargetType:     &instanceTargetType,
+						IPAddressType:  &targetGroupIPAddressTypeIPv6,
+						VpcID:          "vpc-1234567a",
+					},
+				},
+			},
+			wantErr: errors.New("invalid VpcID vpc-1234567a doesnt match VpcID from TargetGroup tg-2"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -187,7 +284,7 @@ func Test_targetGroupBindingValidator_ValidateCreate(t *testing.T) {
 			k8sSchema := runtime.NewScheme()
 			clientgoscheme.AddToScheme(k8sSchema)
 			elbv2api.AddToScheme(k8sSchema)
-			k8sClient := testclient.NewFakeClientWithScheme(k8sSchema)
+			k8sClient := testclient.NewClientBuilder().WithScheme(k8sSchema).Build()
 			elbv2Client := services.NewMockELBV2(ctrl)
 			for _, call := range tt.fields.describeTargetGroupsAsListCalls {
 				elbv2Client.EXPECT().DescribeTargetGroupsAsList(gomock.Any(), call.req).Return(call.resp, call.err)
@@ -195,7 +292,7 @@ func Test_targetGroupBindingValidator_ValidateCreate(t *testing.T) {
 			v := &targetGroupBindingValidator{
 				k8sClient:   k8sClient,
 				elbv2Client: elbv2Client,
-				logger:      &log.NullLogger{},
+				logger:      logr.New(&log.NullLogSink{}),
 			}
 			err := v.ValidateCreate(context.Background(), tt.args.obj)
 			if tt.wantErr != nil {
@@ -318,7 +415,7 @@ func Test_targetGroupBindingValidator_ValidateUpdate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := &targetGroupBindingValidator{
-				logger: &log.NullLogger{},
+				logger: logr.New(&log.NullLogSink{}),
 			}
 			err := v.ValidateUpdate(context.Background(), tt.args.obj, tt.args.oldObj)
 			if tt.wantErr != nil {
@@ -368,7 +465,7 @@ func Test_targetGroupBindingValidator_checkRequiredFields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := &targetGroupBindingValidator{
-				logger: &log.NullLogger{},
+				logger: logr.New(&log.NullLogSink{}),
 			}
 			err := v.checkRequiredFields(tt.args.tgb)
 			if tt.wantErr != nil {
@@ -389,6 +486,7 @@ func Test_targetGroupBindingValidator_checkImmutableFields(t *testing.T) {
 	}
 	instanceTargetType := elbv2api.TargetTypeInstance
 	ipTargetType := elbv2api.TargetTypeIP
+	clusterVpcID := "cluster-vpc-id"
 	tests := []struct {
 		name    string
 		args    args
@@ -598,11 +696,89 @@ func Test_targetGroupBindingValidator_checkImmutableFields(t *testing.T) {
 			},
 			wantErr: errors.New("TargetGroupBinding update may not change these fields: spec.ipAddressType"),
 		},
+		{
+			name: "VpcID modified from vpc-0aaaaaaa to vpc-0bbbbbbb",
+			args: args{
+				tgb: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						TargetType:     &ipTargetType,
+						VpcID:          "vpc-0bbbbbbb",
+					},
+				},
+				oldTGB: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						TargetType:     &ipTargetType,
+						VpcID:          "vpc-0aaaaaaa",
+					},
+				},
+			},
+			wantErr: errors.New("TargetGroupBinding update may not change these fields: spec.vpcID"),
+		},
+		{
+			name: "VpcID modified from vpc-0aaaaaaa to nil",
+			args: args{
+				tgb: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						TargetType:     &ipTargetType,
+					},
+				},
+				oldTGB: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						TargetType:     &ipTargetType,
+						VpcID:          "vpc-0aaaaaaa",
+					},
+				},
+			},
+			wantErr: errors.New("TargetGroupBinding update may not change these fields: spec.vpcID"),
+		},
+		{
+			name: "VpcID modified from nil to vpc-0aaaaaaa",
+			args: args{
+				tgb: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						TargetType:     &ipTargetType,
+						VpcID:          "vpc-0aaaaaaa",
+					},
+				},
+				oldTGB: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						TargetType:     &ipTargetType,
+					},
+				},
+			},
+			wantErr: errors.New("TargetGroupBinding update may not change these fields: spec.vpcID"),
+		},
+		{
+			name: "VpcID modified from nil to cluster vpc-id is allowed",
+			args: args{
+				tgb: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						TargetType:     &ipTargetType,
+						VpcID:          clusterVpcID,
+					},
+				},
+				oldTGB: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						TargetType:     &ipTargetType,
+					},
+				},
+			},
+			wantErr: nil,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := &targetGroupBindingValidator{
-				logger: &log.NullLogger{},
+				logger: logr.New(&log.NullLogSink{}),
+				vpcID:  clusterVpcID,
 			}
 			err := v.checkImmutableFields(tt.args.tgb, tt.args.oldTGB)
 			if tt.wantErr != nil {
@@ -676,7 +852,7 @@ func Test_targetGroupBindingValidator_checkNodeSelector(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := &targetGroupBindingValidator{
-				logger: &log.NullLogger{},
+				logger: logr.New(&log.NullLogSink{}),
 			}
 			err := v.checkNodeSelector(tt.args.tgb)
 			if tt.wantErr != nil {
@@ -887,10 +1063,10 @@ func Test_targetGroupBindingValidator_checkExistingTargetGroups(t *testing.T) {
 			k8sSchema := runtime.NewScheme()
 			clientgoscheme.AddToScheme(k8sSchema)
 			elbv2api.AddToScheme(k8sSchema)
-			k8sClient := testclient.NewFakeClientWithScheme(k8sSchema)
+			k8sClient := testclient.NewClientBuilder().WithScheme(k8sSchema).Build()
 			v := &targetGroupBindingValidator{
 				k8sClient: k8sClient,
-				logger:    &log.NullLogger{},
+				logger:    logr.New(&log.NullLogSink{}),
 			}
 			for _, tgb := range tt.env.existingTGBs {
 				assert.NoError(t, k8sClient.Create(context.Background(), tgb.DeepCopy()))
@@ -903,4 +1079,290 @@ func Test_targetGroupBindingValidator_checkExistingTargetGroups(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_targetGroupBindingValidator_checkTargetGroupVpcID(t *testing.T) {
+	type args struct {
+		obj *elbv2api.TargetGroupBinding
+	}
+	type describeTargetGroupsAsListCall struct {
+		req  *elbv2sdk.DescribeTargetGroupsInput
+		resp []elbv2types.TargetGroup
+		err  error
+	}
+	type fields struct {
+		describeTargetGroupsAsListCalls []describeTargetGroupsAsListCall
+	}
+	var (
+		vpcID8Chars              = fmt.Sprintf("vpc-%s", generateRandomString(8))
+		vpcID17Chars             = fmt.Sprintf("vpc-%s", generateRandomString(17))
+		vpcIDUUID                = fmt.Sprintf("vpc-%s", generateVpcUUID())
+		vpcID8CharsWrongPrefix   = fmt.Sprintf("vpcid-%s", generateRandomString(8))
+		vpcID8CharsIllegalChars  = fmt.Sprintf("vpc-%s", generateRandomString(6, '@', '!'))
+		vpcID17CharsWrongPrefix  = fmt.Sprintf("vpcid-%s", generateRandomString(17))
+		vpcID17CharsIllegalChars = fmt.Sprintf("vpc-%s", generateRandomString(15, 'G', 'L'))
+		vpcIDUUIDWrongPrefix     = fmt.Sprintf("vpcid-%s", generateRandomString(32))
+		vpcIDUUIDIllegalChars    = fmt.Sprintf("vpc-%s", generateRandomString(30, 'z', 'Y'))
+	)
+
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		wantErr error
+	}{
+		{
+			name: "[ok] Valid VpcID with 8 Characters",
+			fields: fields{
+				describeTargetGroupsAsListCalls: []describeTargetGroupsAsListCall{
+					{
+						req: &elbv2sdk.DescribeTargetGroupsInput{
+							TargetGroupArns: []string{"tg-2"},
+						},
+						resp: []elbv2types.TargetGroup{
+							{
+								VpcId: awssdk.String(vpcID8Chars),
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						VpcID:          vpcID8Chars,
+					},
+				},
+			},
+		},
+		{
+			name: "[ok] Valid VpcID with 17 Characters",
+			fields: fields{
+				describeTargetGroupsAsListCalls: []describeTargetGroupsAsListCall{
+					{
+						req: &elbv2sdk.DescribeTargetGroupsInput{
+							TargetGroupArns: []string{"tg-2"},
+						},
+						resp: []elbv2types.TargetGroup{
+							{
+								VpcId: awssdk.String(vpcID17Chars),
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						VpcID:          vpcID17Chars,
+					},
+				},
+			},
+		},
+		{
+			name: "[ok] Valid VpcID with UUID",
+			fields: fields{
+				describeTargetGroupsAsListCalls: []describeTargetGroupsAsListCall{
+					{
+						req: &elbv2sdk.DescribeTargetGroupsInput{
+							TargetGroupArns: []string{"tg-2"},
+						},
+						resp: []elbv2types.TargetGroup{
+							{
+								VpcId: awssdk.String(vpcIDUUID),
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						VpcID:          vpcIDUUID,
+					},
+				},
+			},
+		},
+		{
+			name: "[err] Provided VpcID doesn't match VpcID from TargetGroup",
+			fields: fields{
+				describeTargetGroupsAsListCalls: []describeTargetGroupsAsListCall{
+					{
+						req: &elbv2sdk.DescribeTargetGroupsInput{
+							TargetGroupArns: []string{"tg-2"},
+						},
+						resp: []elbv2types.TargetGroup{
+							{
+								VpcId: awssdk.String(fmt.Sprintf("vpc-%s", generateRandomString(17))),
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						VpcID:          vpcID17Chars,
+					},
+				},
+			},
+			wantErr: fmt.Errorf(vpcIDNotMatchErr, vpcID17Chars, "tg-2"),
+		},
+		{
+			name: "[ok] VpcID is not set",
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{},
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "[err] vpcID is not found",
+			fields: fields{
+				describeTargetGroupsAsListCalls: []describeTargetGroupsAsListCall{
+					{
+						req: &elbv2sdk.DescribeTargetGroupsInput{
+							TargetGroupArns: []string{"tg-2"},
+						},
+						err: errors.New("vpcid not found"),
+					},
+				},
+			},
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						VpcID:          "vpc-b234567a",
+					},
+				},
+			},
+			wantErr: errors.New("unable to get target group VpcID: vpcid not found"),
+		},
+		{
+			name: "[err] vpcID 8 chars is not valid - invalid prefix",
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						VpcID:          vpcID8CharsWrongPrefix,
+					},
+				},
+			},
+			wantErr: errors.New(fmt.Sprintf(vpcIDValidationErr, vpcID8CharsWrongPrefix)),
+		},
+		{
+			name: "[err] vpcID 8 chars is not valid - illegal chars",
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						VpcID:          vpcID8CharsIllegalChars,
+					},
+				},
+			},
+			wantErr: errors.New(fmt.Sprintf(vpcIDValidationErr, vpcID8CharsIllegalChars)),
+		},
+		{
+			name: "[err] vpcID 17 chars is not valid - invalid prefix",
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						VpcID:          vpcID17CharsWrongPrefix,
+					},
+				},
+			},
+			wantErr: errors.New(fmt.Sprintf(vpcIDValidationErr, vpcID17CharsWrongPrefix)),
+		},
+		{
+			name: "[err] vpcID 17 chars is not valid - illegal chars",
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						VpcID:          vpcID17CharsIllegalChars,
+					},
+				},
+			},
+			wantErr: errors.New(fmt.Sprintf(vpcIDValidationErr, vpcID17CharsIllegalChars)),
+		},
+		{
+			name: "[err] vpcID UUID is not valid - invalid prefix",
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						VpcID:          vpcIDUUIDWrongPrefix,
+					},
+				},
+			},
+			wantErr: errors.New(fmt.Sprintf(vpcIDValidationErr, vpcIDUUIDWrongPrefix)),
+		},
+		{
+			name: "[err] vpcID UUID is not valid - illegal chars",
+			args: args{
+				obj: &elbv2api.TargetGroupBinding{
+					Spec: elbv2api.TargetGroupBindingSpec{
+						TargetGroupARN: "tg-2",
+						VpcID:          vpcIDUUIDIllegalChars,
+					},
+				},
+			},
+			wantErr: errors.New(fmt.Sprintf(vpcIDValidationErr, vpcIDUUIDIllegalChars)),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			k8sSchema := runtime.NewScheme()
+			clientgoscheme.AddToScheme(k8sSchema)
+			elbv2api.AddToScheme(k8sSchema)
+			k8sClient := testclient.NewClientBuilder().WithScheme(k8sSchema).Build()
+			elbv2Client := services.NewMockELBV2(ctrl)
+			for _, call := range tt.fields.describeTargetGroupsAsListCalls {
+				elbv2Client.EXPECT().DescribeTargetGroupsAsList(gomock.Any(), call.req).Return(call.resp, call.err)
+			}
+			v := &targetGroupBindingValidator{
+				k8sClient:   k8sClient,
+				elbv2Client: elbv2Client,
+				logger:      logr.New(&log.NullLogSink{}),
+			}
+			err := v.checkTargetGroupVpcID(context.Background(), tt.args.obj)
+			if tt.wantErr != nil {
+				assert.EqualError(t, err, tt.wantErr.Error())
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func generateRandomString(n int, addChars ...rune) string {
+	const letters = "0123456789abcdef"
+
+	ret := make([]byte, n)
+	for i := 0; i < n; i++ {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(letters))))
+		if err != nil {
+			return ""
+		}
+		ret[i] = letters[num.Int64()]
+	}
+
+	w := string(ret)
+	for _, c := range addChars {
+		w += string(c)
+	}
+	return w
+}
+
+func generateVpcUUID() string {
+	u := strings.ToLower(uuid.New().String())
+	return strings.Replace(u, "-", "", -1)
 }

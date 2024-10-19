@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	defaultGroupOrder  int64 = 0
-	minGroupOrder      int64 = -1000
-	maxGroupOder       int64 = 1000
+	defaultGroupOrder  int32 = 0
+	minGroupOrder      int32 = -1000
+	maxGroupOder       int32 = 1000
 	maxGroupNameLength int   = 63
 )
 
@@ -81,7 +81,6 @@ func (m *defaultGroupLoader) Load(ctx context.Context, groupID GroupID) (Group, 
 	if err := m.client.List(ctx, ingList); err != nil {
 		return Group{}, err
 	}
-
 	var members []ClassifiedIngress
 	var inactiveMembers []*networking.Ingress
 	for index := range ingList.Items {
@@ -208,30 +207,24 @@ func (m *defaultGroupLoader) classifyIngress(ctx context.Context, ing *networkin
 		}, false, nil
 	}
 
-	if ing.Spec.IngressClassName != nil {
-		ingClassConfig, err := m.classLoader.Load(ctx, ing)
-		if err != nil {
-			return ClassifiedIngress{
-				Ing:            ing,
-				IngClassConfig: ClassConfiguration{},
-			}, false, err
-		}
+	ingClassConfig, err := m.classLoader.Load(ctx, ing)
+	if err != nil {
+		return ClassifiedIngress{
+			Ing:            ing,
+			IngClassConfig: ClassConfiguration{},
+		}, false, err
+	}
 
-		if matchesIngressClass := ingClassConfig.IngClass != nil && ingClassConfig.IngClass.Spec.Controller == ingressClassControllerALB; matchesIngressClass {
-			return ClassifiedIngress{
-				Ing:            ing,
-				IngClassConfig: ingClassConfig,
-			}, true, nil
-		}
+	if ingClassConfig.IngClass != nil {
 		return ClassifiedIngress{
 			Ing:            ing,
 			IngClassConfig: ingClassConfig,
-		}, false, nil
+		}, ingClassConfig.IngClass.Spec.Controller == IngressClassControllerALB, nil
 	}
 
 	return ClassifiedIngress{
 		Ing:            ing,
-		IngClassConfig: ClassConfiguration{},
+		IngClassConfig: ingClassConfig,
 	}, m.manageIngressesWithoutIngressClass, nil
 }
 
@@ -271,7 +264,7 @@ func (m *defaultGroupLoader) containsGroupFinalizer(groupID GroupID, finalizer s
 
 type groupMemberWithOrder struct {
 	member ClassifiedIngress
-	order  int64
+	order  int32
 }
 
 // sortGroupMembers will sort Ingresses within Ingress group in ascending order.
@@ -287,7 +280,7 @@ func (m *defaultGroupLoader) sortGroupMembers(members []ClassifiedIngress) ([]Cl
 	groupMemberWithOrderList := make([]groupMemberWithOrder, 0, len(members))
 	for _, member := range members {
 		var order = defaultGroupOrder
-		exists, err := m.annotationParser.ParseInt64Annotation(annotations.IngressSuffixGroupOrder, &order, member.Ing.Annotations)
+		exists, err := m.annotationParser.ParseInt32Annotation(annotations.IngressSuffixGroupOrder, &order, member.Ing.Annotations)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to load Ingress group order for ingress: %v", k8s.NamespacedName(member.Ing))
 		}

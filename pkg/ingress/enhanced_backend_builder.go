@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	awssdk "github.com/aws/aws-sdk-go/aws"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	networking "k8s.io/api/networking/v1"
@@ -24,10 +24,6 @@ const (
 	nonExistentBackendServiceMessageBody = "Backend service does not exist"
 	// the message body of fixed 503 response used when referencing a non-existent annotation Action as backend.
 	nonExistentBackendActionMessageBody = "Backend action does not exist"
-	// by default, we tolerate a missing backend service, and use a fixed 503 response instead.
-	defaultTolerateNonExistentBackendService = true
-	// by default, we tolerate a missing backend action, and use a fixed 503 response instead.
-	defaultTolerateNonExistentBackendAction = true
 )
 
 // EnhancedBackend is an enhanced version of Ingress backend.
@@ -80,14 +76,13 @@ type EnhancedBackendBuilder interface {
 }
 
 // NewDefaultEnhancedBackendBuilder constructs new defaultEnhancedBackendBuilder.
-func NewDefaultEnhancedBackendBuilder(k8sClient client.Client, annotationParser annotations.Parser, authConfigBuilder AuthConfigBuilder) *defaultEnhancedBackendBuilder {
+func NewDefaultEnhancedBackendBuilder(k8sClient client.Client, annotationParser annotations.Parser, authConfigBuilder AuthConfigBuilder, tolerateNonExistentBackendService bool, tolerateNonExistentBackendAction bool) *defaultEnhancedBackendBuilder {
 	return &defaultEnhancedBackendBuilder{
-		k8sClient:         k8sClient,
-		annotationParser:  annotationParser,
-		authConfigBuilder: authConfigBuilder,
-
-		tolerateNonExistentBackendService: defaultTolerateNonExistentBackendAction,
-		tolerateNonExistentBackendAction:  defaultTolerateNonExistentBackendService,
+		k8sClient:                         k8sClient,
+		annotationParser:                  annotationParser,
+		authConfigBuilder:                 authConfigBuilder,
+		tolerateNonExistentBackendService: tolerateNonExistentBackendService,
+		tolerateNonExistentBackendAction:  tolerateNonExistentBackendAction,
 	}
 }
 
@@ -165,7 +160,7 @@ func (b *defaultEnhancedBackendBuilder) buildConditions(_ context.Context, ingAn
 		return nil, err
 	}
 	for _, condition := range conditions {
-		if err := condition.validate(); err != nil {
+		if err := condition.Validate(); err != nil {
 			return nil, err
 		}
 	}
@@ -248,7 +243,7 @@ func (b *defaultEnhancedBackendBuilder) loadBackendServices(ctx context.Context,
 		svcNames := sets.NewString()
 		for _, tgt := range action.ForwardConfig.TargetGroups {
 			if tgt.ServiceName != nil {
-				svcNames.Insert(awssdk.StringValue(tgt.ServiceName))
+				svcNames.Insert(awssdk.ToString(tgt.ServiceName))
 			}
 		}
 		forwardToSingleSvc := (len(action.ForwardConfig.TargetGroups) == 1) && (svcNames.Len() == 1)
@@ -280,7 +275,7 @@ func (b *defaultEnhancedBackendBuilder) buildAuthConfig(ctx context.Context, act
 		action.ForwardConfig != nil &&
 		len(action.ForwardConfig.TargetGroups) == 1 &&
 		action.ForwardConfig.TargetGroups[0].ServiceName != nil {
-		svcName := awssdk.StringValue(action.ForwardConfig.TargetGroups[0].ServiceName)
+		svcName := awssdk.ToString(action.ForwardConfig.TargetGroups[0].ServiceName)
 		svcKey := types.NamespacedName{Namespace: namespace, Name: svcName}
 		svc := backendServices[svcKey]
 		svcAndIngAnnotations = algorithm.MergeStringMap(svc.Annotations, svcAndIngAnnotations)

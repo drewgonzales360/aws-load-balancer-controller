@@ -1,11 +1,11 @@
 package networking
 
 import (
-	awssdk "github.com/aws/aws-sdk-go/aws"
-	ec2sdk "github.com/aws/aws-sdk-go/service/ec2"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
-	"inet.af/netaddr"
+
 	"net/netip"
 	"testing"
 )
@@ -17,7 +17,7 @@ func TestParseCIDRs(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    []netaddr.IPPrefix
+		want    []netip.Prefix
 		wantErr error
 	}{
 		{
@@ -25,8 +25,8 @@ func TestParseCIDRs(t *testing.T) {
 			args: args{
 				cidrs: []string{"192.168.5.100/16"},
 			},
-			want: []netaddr.IPPrefix{
-				netaddr.MustParseIPPrefix("192.168.5.100/16"),
+			want: []netip.Prefix{
+				netip.MustParsePrefix("192.168.5.100/16"),
 			},
 		},
 		{
@@ -34,9 +34,9 @@ func TestParseCIDRs(t *testing.T) {
 			args: args{
 				cidrs: []string{"192.168.5.100/16", "10.100.0.0/16"},
 			},
-			want: []netaddr.IPPrefix{
-				netaddr.MustParseIPPrefix("192.168.5.100/16"),
-				netaddr.MustParseIPPrefix("10.100.0.0/16"),
+			want: []netip.Prefix{
+				netip.MustParsePrefix("192.168.5.100/16"),
+				netip.MustParsePrefix("10.100.0.0/16"),
 			},
 		},
 		{
@@ -44,7 +44,7 @@ func TestParseCIDRs(t *testing.T) {
 			args: args{
 				cidrs: []string{"192.168.5.100/16", "10.100.0.0"},
 			},
-			wantErr: errors.New("netaddr.ParseIPPrefix(\"10.100.0.0\"): no '/'"),
+			wantErr: errors.New("netip.ParsePrefix(\"10.100.0.0\"): no '/'"),
 		},
 		{
 			name: "empty CIDRs",
@@ -76,8 +76,8 @@ func TestParseCIDRs(t *testing.T) {
 
 func TestIsIPWithinCIDRs(t *testing.T) {
 	type args struct {
-		ip    netaddr.IP
-		cidrs []netaddr.IPPrefix
+		ip    netip.Addr
+		cidrs []netip.Prefix
 	}
 	tests := []struct {
 		name string
@@ -87,11 +87,11 @@ func TestIsIPWithinCIDRs(t *testing.T) {
 		{
 			name: "ipv4 address within CIDRs",
 			args: args{
-				ip: netaddr.MustParseIP("192.168.1.42"),
-				cidrs: []netaddr.IPPrefix{
-					netaddr.MustParseIPPrefix("10.100.0.0/16"),
-					netaddr.MustParseIPPrefix("192.168.0.0/16"),
-					netaddr.MustParseIPPrefix("2600:1f14:f8c:2700::/56"),
+				ip: netip.MustParseAddr("192.168.1.42"),
+				cidrs: []netip.Prefix{
+					netip.MustParsePrefix("10.100.0.0/16"),
+					netip.MustParsePrefix("192.168.0.0/16"),
+					netip.MustParsePrefix("2600:1f14:f8c:2700::/56"),
 				},
 			},
 			want: true,
@@ -99,11 +99,11 @@ func TestIsIPWithinCIDRs(t *testing.T) {
 		{
 			name: "ipv4 address not within CIDRs",
 			args: args{
-				ip: netaddr.MustParseIP("172.16.1.42"),
-				cidrs: []netaddr.IPPrefix{
-					netaddr.MustParseIPPrefix("10.100.0.0/16"),
-					netaddr.MustParseIPPrefix("192.168.0.0/16"),
-					netaddr.MustParseIPPrefix("2600:1f14:f8c:2700::/56"),
+				ip: netip.MustParseAddr("172.16.1.42"),
+				cidrs: []netip.Prefix{
+					netip.MustParsePrefix("10.100.0.0/16"),
+					netip.MustParsePrefix("192.168.0.0/16"),
+					netip.MustParsePrefix("2600:1f14:f8c:2700::/56"),
 				},
 			},
 			want: false,
@@ -111,11 +111,11 @@ func TestIsIPWithinCIDRs(t *testing.T) {
 		{
 			name: "ipv6 address within CIDRs",
 			args: args{
-				ip: netaddr.MustParseIP("2600:1f14:f8c:2701:a740::"),
-				cidrs: []netaddr.IPPrefix{
-					netaddr.MustParseIPPrefix("10.100.0.0/16"),
-					netaddr.MustParseIPPrefix("2700:1f14:f8c:2700::/56"),
-					netaddr.MustParseIPPrefix("2600:1f14:f8c:2700::/56"),
+				ip: netip.MustParseAddr("2600:1f14:f8c:2701:a740::"),
+				cidrs: []netip.Prefix{
+					netip.MustParsePrefix("10.100.0.0/16"),
+					netip.MustParsePrefix("2700:1f14:f8c:2700::/56"),
+					netip.MustParsePrefix("2600:1f14:f8c:2700::/56"),
 				},
 			},
 			want: true,
@@ -123,11 +123,11 @@ func TestIsIPWithinCIDRs(t *testing.T) {
 		{
 			name: "ipv6 address not within CIDRs",
 			args: args{
-				ip: netaddr.MustParseIP("2800:1f14:f8c:2701:a740::"),
-				cidrs: []netaddr.IPPrefix{
-					netaddr.MustParseIPPrefix("10.100.0.0/16"),
-					netaddr.MustParseIPPrefix("2700:1f14:f8c:2700::/56"),
-					netaddr.MustParseIPPrefix("2600:1f14:f8c:2700::/56"),
+				ip: netip.MustParseAddr("2800:1f14:f8c:2701:a740::"),
+				cidrs: []netip.Prefix{
+					netip.MustParsePrefix("10.100.0.0/16"),
+					netip.MustParsePrefix("2700:1f14:f8c:2700::/56"),
+					netip.MustParsePrefix("2600:1f14:f8c:2700::/56"),
 				},
 			},
 			want: false,
@@ -230,7 +230,7 @@ func TestFilterIPsWithinCIDRs(t *testing.T) {
 
 func TestGetSubnetAssociatedIPv4CIDRs(t *testing.T) {
 	type args struct {
-		subnet *ec2sdk.Subnet
+		subnet ec2types.Subnet
 	}
 	tests := []struct {
 		name    string
@@ -241,7 +241,7 @@ func TestGetSubnetAssociatedIPv4CIDRs(t *testing.T) {
 		{
 			name: "one IPv4 CIDR",
 			args: args{
-				subnet: &ec2sdk.Subnet{
+				subnet: ec2types.Subnet{
 					CidrBlock: awssdk.String("192.168.1.0/24"),
 				},
 			},
@@ -264,7 +264,7 @@ func TestGetSubnetAssociatedIPv4CIDRs(t *testing.T) {
 
 func TestGetSubnetAssociatedIPv6CIDRs(t *testing.T) {
 	type args struct {
-		subnet *ec2sdk.Subnet
+		subnet ec2types.Subnet
 	}
 	tests := []struct {
 		name    string
@@ -275,13 +275,13 @@ func TestGetSubnetAssociatedIPv6CIDRs(t *testing.T) {
 		{
 			name: "one IPv6 CIDR",
 			args: args{
-				subnet: &ec2sdk.Subnet{
+				subnet: ec2types.Subnet{
 					CidrBlock: awssdk.String("192.168.1.0/24"),
-					Ipv6CidrBlockAssociationSet: []*ec2sdk.SubnetIpv6CidrBlockAssociation{
+					Ipv6CidrBlockAssociationSet: []ec2types.SubnetIpv6CidrBlockAssociation{
 						{
 							Ipv6CidrBlock: awssdk.String("2600:1f13:837:8500::/64"),
-							Ipv6CidrBlockState: &ec2sdk.SubnetCidrBlockState{
-								State: awssdk.String(ec2sdk.SubnetCidrBlockStateCodeAssociated),
+							Ipv6CidrBlockState: &ec2types.SubnetCidrBlockState{
+								State: ec2types.SubnetCidrBlockStateCodeAssociated,
 							},
 						},
 					},
@@ -294,19 +294,19 @@ func TestGetSubnetAssociatedIPv6CIDRs(t *testing.T) {
 		{
 			name: "multiple IPv6 CIDR",
 			args: args{
-				subnet: &ec2sdk.Subnet{
+				subnet: ec2types.Subnet{
 					CidrBlock: awssdk.String("192.168.1.0/24"),
-					Ipv6CidrBlockAssociationSet: []*ec2sdk.SubnetIpv6CidrBlockAssociation{
+					Ipv6CidrBlockAssociationSet: []ec2types.SubnetIpv6CidrBlockAssociation{
 						{
 							Ipv6CidrBlock: awssdk.String("2600:1f13:837:8500::/64"),
-							Ipv6CidrBlockState: &ec2sdk.SubnetCidrBlockState{
-								State: awssdk.String(ec2sdk.SubnetCidrBlockStateCodeAssociated),
+							Ipv6CidrBlockState: &ec2types.SubnetCidrBlockState{
+								State: ec2types.SubnetCidrBlockStateCodeAssociated,
 							},
 						},
 						{
 							Ipv6CidrBlock: awssdk.String("2600:1f13:837:8504::/64"),
-							Ipv6CidrBlockState: &ec2sdk.SubnetCidrBlockState{
-								State: awssdk.String(ec2sdk.SubnetCidrBlockStateCodeAssociated),
+							Ipv6CidrBlockState: &ec2types.SubnetCidrBlockState{
+								State: ec2types.SubnetCidrBlockStateCodeAssociated,
 							},
 						},
 					},
@@ -320,7 +320,7 @@ func TestGetSubnetAssociatedIPv6CIDRs(t *testing.T) {
 		{
 			name: "zero IPv6 CIDR",
 			args: args{
-				subnet: &ec2sdk.Subnet{
+				subnet: ec2types.Subnet{
 					CidrBlock: awssdk.String("192.168.1.0/24"),
 				},
 			},

@@ -1,11 +1,12 @@
 package elbv2
 
 import (
-	awssdk "github.com/aws/aws-sdk-go/aws"
-	elbv2sdk "github.com/aws/aws-sdk-go/service/elbv2"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/aws-load-balancer-controller/pkg/config"
 	coremodel "sigs.k8s.io/aws-load-balancer-controller/pkg/model/core"
 	elbv2model "sigs.k8s.io/aws-load-balancer-controller/pkg/model/elbv2"
 	"testing"
@@ -45,7 +46,7 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 				},
 				sdkTGs: []TargetGroupWithTags{
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-1"),
 						},
 						Tags: map[string]string{
@@ -53,7 +54,7 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 						},
 					},
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-2"),
 						},
 						Tags: map[string]string{
@@ -72,7 +73,7 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 						},
 					},
 					sdkTG: TargetGroupWithTags{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-1"),
 						},
 						Tags: map[string]string{
@@ -88,7 +89,7 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 						},
 					},
 					sdkTG: TargetGroupWithTags{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-2"),
 						},
 						Tags: map[string]string{
@@ -117,7 +118,7 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 				},
 				sdkTGs: []TargetGroupWithTags{
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-1"),
 						},
 						Tags: map[string]string{
@@ -136,7 +137,7 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 						},
 					},
 					sdkTG: TargetGroupWithTags{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-1"),
 						},
 						Tags: map[string]string{
@@ -167,7 +168,7 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 				},
 				sdkTGs: []TargetGroupWithTags{
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-1"),
 						},
 						Tags: map[string]string{
@@ -175,7 +176,7 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 						},
 					},
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-2"),
 						},
 						Tags: map[string]string{
@@ -194,7 +195,7 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 						},
 					},
 					sdkTG: TargetGroupWithTags{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-1"),
 						},
 						Tags: map[string]string{
@@ -205,7 +206,7 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 			},
 			want2: []TargetGroupWithTags{
 				{
-					TargetGroup: &elbv2sdk.TargetGroup{
+					TargetGroup: &elbv2types.TargetGroup{
 						TargetGroupArn: awssdk.String("arn-2"),
 					},
 					Tags: map[string]string{
@@ -228,18 +229,18 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 				},
 				sdkTGs: []TargetGroupWithTags{
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-1"),
-							TargetType:     awssdk.String("instance"),
+							TargetType:     elbv2types.TargetTypeEnum("instance"),
 						},
 						Tags: map[string]string{
 							"ingress.k8s.aws/resource": "id-1",
 						},
 					},
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-2"),
-							TargetType:     awssdk.String("ip"),
+							TargetType:     elbv2types.TargetTypeEnum("ip"),
 						},
 						Tags: map[string]string{
 							"ingress.k8s.aws/resource": "id-1",
@@ -258,9 +259,9 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 						},
 					},
 					sdkTG: TargetGroupWithTags{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-2"),
-							TargetType:     awssdk.String("ip"),
+							TargetType:     elbv2types.TargetTypeEnum("ip"),
 						},
 						Tags: map[string]string{
 							"ingress.k8s.aws/resource": "id-1",
@@ -270,9 +271,9 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 			},
 			want2: []TargetGroupWithTags{
 				{
-					TargetGroup: &elbv2sdk.TargetGroup{
+					TargetGroup: &elbv2types.TargetGroup{
 						TargetGroupArn: awssdk.String("arn-1"),
-						TargetType:     awssdk.String("instance"),
+						TargetType:     elbv2types.TargetTypeEnum("instance"),
 					},
 					Tags: map[string]string{
 						"ingress.k8s.aws/resource": "id-1",
@@ -283,7 +284,8 @@ func Test_matchResAndSDKTargetGroups(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1, got2, err := matchResAndSDKTargetGroups(tt.args.resTGs, tt.args.sdkTGs, tt.args.resourceIDTagKey)
+			featureGates := config.NewFeatureGates()
+			got, got1, got2, err := matchResAndSDKTargetGroups(tt.args.resTGs, tt.args.sdkTGs, tt.args.resourceIDTagKey, featureGates)
 			if tt.wantErr != nil {
 				assert.EqualError(t, err, tt.wantErr.Error())
 			} else {
@@ -364,7 +366,7 @@ func Test_mapSDKTargetGroupByResourceID(t *testing.T) {
 			args: args{
 				sdkTGs: []TargetGroupWithTags{
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-1"),
 						},
 						Tags: map[string]string{
@@ -372,7 +374,7 @@ func Test_mapSDKTargetGroupByResourceID(t *testing.T) {
 						},
 					},
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-2"),
 						},
 						Tags: map[string]string{
@@ -385,7 +387,7 @@ func Test_mapSDKTargetGroupByResourceID(t *testing.T) {
 			want: map[string][]TargetGroupWithTags{
 				"id-1": {
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-1"),
 						},
 						Tags: map[string]string{
@@ -395,7 +397,7 @@ func Test_mapSDKTargetGroupByResourceID(t *testing.T) {
 				},
 				"id-2": {
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-2"),
 						},
 						Tags: map[string]string{
@@ -410,7 +412,7 @@ func Test_mapSDKTargetGroupByResourceID(t *testing.T) {
 			args: args{
 				sdkTGs: []TargetGroupWithTags{
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-1"),
 						},
 						Tags: map[string]string{
@@ -418,7 +420,7 @@ func Test_mapSDKTargetGroupByResourceID(t *testing.T) {
 						},
 					},
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-2A"),
 						},
 						Tags: map[string]string{
@@ -426,7 +428,7 @@ func Test_mapSDKTargetGroupByResourceID(t *testing.T) {
 						},
 					},
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-2B"),
 						},
 						Tags: map[string]string{
@@ -439,7 +441,7 @@ func Test_mapSDKTargetGroupByResourceID(t *testing.T) {
 			want: map[string][]TargetGroupWithTags{
 				"id-1": {
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-1"),
 						},
 						Tags: map[string]string{
@@ -449,7 +451,7 @@ func Test_mapSDKTargetGroupByResourceID(t *testing.T) {
 				},
 				"id-2": {
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-2A"),
 						},
 						Tags: map[string]string{
@@ -457,7 +459,7 @@ func Test_mapSDKTargetGroupByResourceID(t *testing.T) {
 						},
 					},
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-2B"),
 						},
 						Tags: map[string]string{
@@ -472,7 +474,7 @@ func Test_mapSDKTargetGroupByResourceID(t *testing.T) {
 			args: args{
 				sdkTGs: []TargetGroupWithTags{
 					{
-						TargetGroup: &elbv2sdk.TargetGroup{
+						TargetGroup: &elbv2types.TargetGroup{
 							TargetGroupArn: awssdk.String("arn-1"),
 						},
 						Tags: map[string]string{},
@@ -512,17 +514,17 @@ func Test_isSDKTargetGroupRequiresReplacement(t *testing.T) {
 			name: "targetGroup don't need replacement",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						TargetType:      awssdk.String("ip"),
-						Port:            awssdk.Int64(8080),
-						Protocol:        awssdk.String("HTTP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						TargetType:      elbv2types.TargetTypeEnumIp,
+						Port:            awssdk.Int32(8080),
+						Protocol:        elbv2types.ProtocolEnumHttp,
 						TargetGroupName: awssdk.String("my-tg"),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
 					Spec: elbv2model.TargetGroupSpec{
 						TargetType: elbv2model.TargetTypeIP,
-						Port:       8080,
+						Port:       awssdk.Int32(8080),
 						Protocol:   elbv2model.ProtocolHTTP,
 						Name:       "my-tg",
 					},
@@ -534,17 +536,17 @@ func Test_isSDKTargetGroupRequiresReplacement(t *testing.T) {
 			name: "name-only change shouldn't need replacement",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						TargetType:      awssdk.String("ip"),
-						Port:            awssdk.Int64(8080),
-						Protocol:        awssdk.String("HTTP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						TargetType:      elbv2types.TargetTypeEnumIp,
+						Port:            awssdk.Int32(8080),
+						Protocol:        elbv2types.ProtocolEnumHttp,
 						TargetGroupName: awssdk.String("my-tg1"),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
 					Spec: elbv2model.TargetGroupSpec{
 						TargetType: elbv2model.TargetTypeIP,
-						Port:       8080,
+						Port:       awssdk.Int32(8080),
 						Protocol:   elbv2model.ProtocolHTTP,
 						Name:       "my-tg",
 					},
@@ -556,17 +558,17 @@ func Test_isSDKTargetGroupRequiresReplacement(t *testing.T) {
 			name: "port-only change shouldn't need replacement",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						TargetType:      awssdk.String("ip"),
-						Port:            awssdk.Int64(9090),
-						Protocol:        awssdk.String("HTTP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						TargetType:      elbv2types.TargetTypeEnumIp,
+						Port:            awssdk.Int32(9090),
+						Protocol:        elbv2types.ProtocolEnumHttp,
 						TargetGroupName: awssdk.String("my-tg"),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
 					Spec: elbv2model.TargetGroupSpec{
 						TargetType: elbv2model.TargetTypeIP,
-						Port:       8080,
+						Port:       awssdk.Int32(8080),
 						Protocol:   elbv2model.ProtocolHTTP,
 						Name:       "my-tg",
 					},
@@ -578,17 +580,17 @@ func Test_isSDKTargetGroupRequiresReplacement(t *testing.T) {
 			name: "targetType change need replacement",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						TargetType:      awssdk.String("instance"),
-						Port:            awssdk.Int64(8080),
-						Protocol:        awssdk.String("HTTP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						TargetType:      elbv2types.TargetTypeEnumInstance,
+						Port:            awssdk.Int32(8080),
+						Protocol:        elbv2types.ProtocolEnumHttp,
 						TargetGroupName: awssdk.String("my-tg"),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
 					Spec: elbv2model.TargetGroupSpec{
 						TargetType: elbv2model.TargetTypeIP,
-						Port:       8080,
+						Port:       awssdk.Int32(8080),
 						Protocol:   elbv2model.ProtocolHTTP,
 						Name:       "my-tg",
 					},
@@ -600,17 +602,17 @@ func Test_isSDKTargetGroupRequiresReplacement(t *testing.T) {
 			name: "protocol change need replacement",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						TargetType:      awssdk.String("ip"),
-						Port:            awssdk.Int64(8080),
-						Protocol:        awssdk.String("TCP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						TargetType:      elbv2types.TargetTypeEnumIp,
+						Port:            awssdk.Int32(8080),
+						Protocol:        elbv2types.ProtocolEnumTcp,
 						TargetGroupName: awssdk.String("my-tg"),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
 					Spec: elbv2model.TargetGroupSpec{
 						TargetType: elbv2model.TargetTypeIP,
-						Port:       8080,
+						Port:       awssdk.Int32(8080),
 						Protocol:   elbv2model.ProtocolHTTP,
 						Name:       "my-tg",
 					},
@@ -619,22 +621,22 @@ func Test_isSDKTargetGroupRequiresReplacement(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "healthCheck change need replacement",
+			name: "healthCheck change needs no replacement for protocol change",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						Protocol:            awssdk.String("TCP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						Protocol:            elbv2types.ProtocolEnumTcp,
 						HealthCheckEnabled:  awssdk.Bool(true),
 						HealthCheckPort:     awssdk.String("8080"),
-						HealthCheckProtocol: awssdk.String("HTTP"),
+						HealthCheckProtocol: elbv2types.ProtocolEnumHttp,
 						HealthCheckPath:     awssdk.String("/"),
-						Matcher: &elbv2sdk.Matcher{
+						Matcher: &elbv2types.Matcher{
 							HttpCode: awssdk.String("200"),
 						},
-						HealthCheckIntervalSeconds: awssdk.Int64(11),
-						HealthCheckTimeoutSeconds:  awssdk.Int64(5),
-						HealthyThresholdCount:      awssdk.Int64(3),
-						UnhealthyThresholdCount:    awssdk.Int64(2),
+						HealthCheckIntervalSeconds: awssdk.Int32(11),
+						HealthCheckTimeoutSeconds:  awssdk.Int32(5),
+						HealthyThresholdCount:      awssdk.Int32(3),
+						UnhealthyThresholdCount:    awssdk.Int32(2),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
@@ -642,23 +644,24 @@ func Test_isSDKTargetGroupRequiresReplacement(t *testing.T) {
 						Protocol: elbv2model.ProtocolTCP,
 						HealthCheckConfig: &elbv2model.TargetGroupHealthCheckConfig{
 							Port:                    &port8080,
-							Protocol:                &protocolHTTP,
+							Protocol:                protocolHTTP,
 							Path:                    awssdk.String("/"),
 							Matcher:                 &elbv2model.HealthCheckMatcher{HTTPCode: awssdk.String("200")},
-							IntervalSeconds:         awssdk.Int64(10),
-							TimeoutSeconds:          awssdk.Int64(5),
-							HealthyThresholdCount:   awssdk.Int64(3),
-							UnhealthyThresholdCount: awssdk.Int64(2),
+							IntervalSeconds:         awssdk.Int32(10),
+							TimeoutSeconds:          awssdk.Int32(5),
+							HealthyThresholdCount:   awssdk.Int32(3),
+							UnhealthyThresholdCount: awssdk.Int32(2),
 						},
 					},
 				},
 			},
-			want: true,
+			want: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isSDKTargetGroupRequiresReplacement(tt.args.sdkTG, tt.args.resTG)
+			featureGates := config.NewFeatureGates()
+			got := isSDKTargetGroupRequiresReplacement(tt.args.sdkTG, tt.args.resTG, featureGates)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -668,8 +671,9 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 	port8080 := intstr.FromInt(8080)
 	protocolHTTP := elbv2model.ProtocolHTTP
 	type args struct {
-		sdkTG TargetGroupWithTags
-		resTG *elbv2model.TargetGroup
+		sdkTG                               TargetGroupWithTags
+		resTG                               *elbv2model.TargetGroup
+		disableAdvancedNLBHealthCheckConfig bool
 	}
 	tests := []struct {
 		name string
@@ -680,19 +684,19 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 			name: "NLB TargetGroup healthCheck haven't changed",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						Protocol:            awssdk.String("TCP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						Protocol:            elbv2types.ProtocolEnumTcp,
 						HealthCheckEnabled:  awssdk.Bool(true),
 						HealthCheckPort:     awssdk.String("8080"),
-						HealthCheckProtocol: awssdk.String("HTTP"),
+						HealthCheckProtocol: elbv2types.ProtocolEnumHttp,
 						HealthCheckPath:     awssdk.String("/"),
-						Matcher: &elbv2sdk.Matcher{
+						Matcher: &elbv2types.Matcher{
 							HttpCode: awssdk.String("200"),
 						},
-						HealthCheckIntervalSeconds: awssdk.Int64(10),
-						HealthCheckTimeoutSeconds:  awssdk.Int64(5),
-						HealthyThresholdCount:      awssdk.Int64(3),
-						UnhealthyThresholdCount:    awssdk.Int64(2),
+						HealthCheckIntervalSeconds: awssdk.Int32(10),
+						HealthCheckTimeoutSeconds:  awssdk.Int32(5),
+						HealthyThresholdCount:      awssdk.Int32(3),
+						UnhealthyThresholdCount:    awssdk.Int32(2),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
@@ -700,13 +704,13 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 						Protocol: elbv2model.ProtocolTCP,
 						HealthCheckConfig: &elbv2model.TargetGroupHealthCheckConfig{
 							Port:                    &port8080,
-							Protocol:                &protocolHTTP,
+							Protocol:                protocolHTTP,
 							Path:                    awssdk.String("/"),
 							Matcher:                 &elbv2model.HealthCheckMatcher{HTTPCode: awssdk.String("200")},
-							IntervalSeconds:         awssdk.Int64(10),
-							TimeoutSeconds:          awssdk.Int64(5),
-							HealthyThresholdCount:   awssdk.Int64(3),
-							UnhealthyThresholdCount: awssdk.Int64(2),
+							IntervalSeconds:         awssdk.Int32(10),
+							TimeoutSeconds:          awssdk.Int32(5),
+							HealthyThresholdCount:   awssdk.Int32(3),
+							UnhealthyThresholdCount: awssdk.Int32(2),
 						},
 					},
 				},
@@ -714,22 +718,22 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "NLB TargetGroup healthCheck cannot change protocol",
+			name: "NLB TargetGroup healthCheck cannot change protocol without advanced config",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						Protocol:            awssdk.String("TCP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						Protocol:            elbv2types.ProtocolEnumTcp,
 						HealthCheckEnabled:  awssdk.Bool(true),
 						HealthCheckPort:     awssdk.String("8080"),
-						HealthCheckProtocol: awssdk.String("HTTPS"),
+						HealthCheckProtocol: elbv2types.ProtocolEnumHttps,
 						HealthCheckPath:     awssdk.String("/"),
-						Matcher: &elbv2sdk.Matcher{
+						Matcher: &elbv2types.Matcher{
 							HttpCode: awssdk.String("200"),
 						},
-						HealthCheckIntervalSeconds: awssdk.Int64(10),
-						HealthCheckTimeoutSeconds:  awssdk.Int64(5),
-						HealthyThresholdCount:      awssdk.Int64(3),
-						UnhealthyThresholdCount:    awssdk.Int64(2),
+						HealthCheckIntervalSeconds: awssdk.Int32(10),
+						HealthCheckTimeoutSeconds:  awssdk.Int32(5),
+						HealthyThresholdCount:      awssdk.Int32(3),
+						UnhealthyThresholdCount:    awssdk.Int32(2),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
@@ -737,16 +741,17 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 						Protocol: elbv2model.ProtocolTCP,
 						HealthCheckConfig: &elbv2model.TargetGroupHealthCheckConfig{
 							Port:                    &port8080,
-							Protocol:                &protocolHTTP,
+							Protocol:                protocolHTTP,
 							Path:                    awssdk.String("/"),
 							Matcher:                 &elbv2model.HealthCheckMatcher{HTTPCode: awssdk.String("200")},
-							IntervalSeconds:         awssdk.Int64(10),
-							TimeoutSeconds:          awssdk.Int64(5),
-							HealthyThresholdCount:   awssdk.Int64(3),
-							UnhealthyThresholdCount: awssdk.Int64(2),
+							IntervalSeconds:         awssdk.Int32(10),
+							TimeoutSeconds:          awssdk.Int32(5),
+							HealthyThresholdCount:   awssdk.Int32(3),
+							UnhealthyThresholdCount: awssdk.Int32(2),
 						},
 					},
 				},
+				disableAdvancedNLBHealthCheckConfig: true,
 			},
 			want: true,
 		},
@@ -754,19 +759,19 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 			name: "NLB TargetGroup healthCheck cannot changed matcher",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						Protocol:            awssdk.String("TCP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						Protocol:            elbv2types.ProtocolEnumTcp,
 						HealthCheckEnabled:  awssdk.Bool(true),
 						HealthCheckPort:     awssdk.String("8080"),
-						HealthCheckProtocol: awssdk.String("HTTP"),
+						HealthCheckProtocol: elbv2types.ProtocolEnumHttp,
 						HealthCheckPath:     awssdk.String("/"),
-						Matcher: &elbv2sdk.Matcher{
+						Matcher: &elbv2types.Matcher{
 							HttpCode: awssdk.String("300"),
 						},
-						HealthCheckIntervalSeconds: awssdk.Int64(10),
-						HealthCheckTimeoutSeconds:  awssdk.Int64(5),
-						HealthyThresholdCount:      awssdk.Int64(3),
-						UnhealthyThresholdCount:    awssdk.Int64(2),
+						HealthCheckIntervalSeconds: awssdk.Int32(10),
+						HealthCheckTimeoutSeconds:  awssdk.Int32(5),
+						HealthyThresholdCount:      awssdk.Int32(3),
+						UnhealthyThresholdCount:    awssdk.Int32(2),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
@@ -774,16 +779,17 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 						Protocol: elbv2model.ProtocolTCP,
 						HealthCheckConfig: &elbv2model.TargetGroupHealthCheckConfig{
 							Port:                    &port8080,
-							Protocol:                &protocolHTTP,
+							Protocol:                protocolHTTP,
 							Path:                    awssdk.String("/"),
 							Matcher:                 &elbv2model.HealthCheckMatcher{HTTPCode: awssdk.String("200")},
-							IntervalSeconds:         awssdk.Int64(10),
-							TimeoutSeconds:          awssdk.Int64(5),
-							HealthyThresholdCount:   awssdk.Int64(3),
-							UnhealthyThresholdCount: awssdk.Int64(2),
+							IntervalSeconds:         awssdk.Int32(10),
+							TimeoutSeconds:          awssdk.Int32(5),
+							HealthyThresholdCount:   awssdk.Int32(3),
+							UnhealthyThresholdCount: awssdk.Int32(2),
 						},
 					},
 				},
+				disableAdvancedNLBHealthCheckConfig: true,
 			},
 			want: true,
 		},
@@ -791,19 +797,19 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 			name: "NLB TargetGroup healthCheck cannot change intervalSeconds",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						Protocol:            awssdk.String("TCP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						Protocol:            elbv2types.ProtocolEnumTcp,
 						HealthCheckEnabled:  awssdk.Bool(true),
 						HealthCheckPort:     awssdk.String("8080"),
-						HealthCheckProtocol: awssdk.String("HTTP"),
+						HealthCheckProtocol: elbv2types.ProtocolEnumHttp,
 						HealthCheckPath:     awssdk.String("/"),
-						Matcher: &elbv2sdk.Matcher{
+						Matcher: &elbv2types.Matcher{
 							HttpCode: awssdk.String("200"),
 						},
-						HealthCheckIntervalSeconds: awssdk.Int64(11),
-						HealthCheckTimeoutSeconds:  awssdk.Int64(5),
-						HealthyThresholdCount:      awssdk.Int64(3),
-						UnhealthyThresholdCount:    awssdk.Int64(2),
+						HealthCheckIntervalSeconds: awssdk.Int32(11),
+						HealthCheckTimeoutSeconds:  awssdk.Int32(5),
+						HealthyThresholdCount:      awssdk.Int32(3),
+						UnhealthyThresholdCount:    awssdk.Int32(2),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
@@ -811,16 +817,17 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 						Protocol: elbv2model.ProtocolTCP,
 						HealthCheckConfig: &elbv2model.TargetGroupHealthCheckConfig{
 							Port:                    &port8080,
-							Protocol:                &protocolHTTP,
+							Protocol:                protocolHTTP,
 							Path:                    awssdk.String("/"),
 							Matcher:                 &elbv2model.HealthCheckMatcher{HTTPCode: awssdk.String("200")},
-							IntervalSeconds:         awssdk.Int64(10),
-							TimeoutSeconds:          awssdk.Int64(5),
-							HealthyThresholdCount:   awssdk.Int64(3),
-							UnhealthyThresholdCount: awssdk.Int64(2),
+							IntervalSeconds:         awssdk.Int32(10),
+							TimeoutSeconds:          awssdk.Int32(5),
+							HealthyThresholdCount:   awssdk.Int32(3),
+							UnhealthyThresholdCount: awssdk.Int32(2),
 						},
 					},
 				},
+				disableAdvancedNLBHealthCheckConfig: true,
 			},
 			want: true,
 		},
@@ -828,19 +835,19 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 			name: "NLB TargetGroup healthCheck cannot change timeoutSecond",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						Protocol:            awssdk.String("TCP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						Protocol:            elbv2types.ProtocolEnumTcp,
 						HealthCheckEnabled:  awssdk.Bool(true),
 						HealthCheckPort:     awssdk.String("8080"),
-						HealthCheckProtocol: awssdk.String("HTTP"),
+						HealthCheckProtocol: elbv2types.ProtocolEnumHttp,
 						HealthCheckPath:     awssdk.String("/"),
-						Matcher: &elbv2sdk.Matcher{
+						Matcher: &elbv2types.Matcher{
 							HttpCode: awssdk.String("200"),
 						},
-						HealthCheckIntervalSeconds: awssdk.Int64(10),
-						HealthCheckTimeoutSeconds:  awssdk.Int64(6),
-						HealthyThresholdCount:      awssdk.Int64(3),
-						UnhealthyThresholdCount:    awssdk.Int64(2),
+						HealthCheckIntervalSeconds: awssdk.Int32(10),
+						HealthCheckTimeoutSeconds:  awssdk.Int32(6),
+						HealthyThresholdCount:      awssdk.Int32(3),
+						UnhealthyThresholdCount:    awssdk.Int32(2),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
@@ -848,16 +855,17 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 						Protocol: elbv2model.ProtocolTCP,
 						HealthCheckConfig: &elbv2model.TargetGroupHealthCheckConfig{
 							Port:                    &port8080,
-							Protocol:                &protocolHTTP,
+							Protocol:                protocolHTTP,
 							Path:                    awssdk.String("/"),
 							Matcher:                 &elbv2model.HealthCheckMatcher{HTTPCode: awssdk.String("200")},
-							IntervalSeconds:         awssdk.Int64(10),
-							TimeoutSeconds:          awssdk.Int64(5),
-							HealthyThresholdCount:   awssdk.Int64(3),
-							UnhealthyThresholdCount: awssdk.Int64(2),
+							IntervalSeconds:         awssdk.Int32(10),
+							TimeoutSeconds:          awssdk.Int32(5),
+							HealthyThresholdCount:   awssdk.Int32(3),
+							UnhealthyThresholdCount: awssdk.Int32(2),
 						},
 					},
 				},
+				disableAdvancedNLBHealthCheckConfig: true,
 			},
 			want: true,
 		},
@@ -865,19 +873,19 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 			name: "NLB TargetGroup healthCheck can change port",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						Protocol:            awssdk.String("TCP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						Protocol:            elbv2types.ProtocolEnumTcp,
 						HealthCheckEnabled:  awssdk.Bool(true),
 						HealthCheckPort:     awssdk.String("9090"),
-						HealthCheckProtocol: awssdk.String("HTTP"),
+						HealthCheckProtocol: elbv2types.ProtocolEnumHttp,
 						HealthCheckPath:     awssdk.String("/"),
-						Matcher: &elbv2sdk.Matcher{
+						Matcher: &elbv2types.Matcher{
 							HttpCode: awssdk.String("200"),
 						},
-						HealthCheckIntervalSeconds: awssdk.Int64(10),
-						HealthCheckTimeoutSeconds:  awssdk.Int64(5),
-						HealthyThresholdCount:      awssdk.Int64(3),
-						UnhealthyThresholdCount:    awssdk.Int64(2),
+						HealthCheckIntervalSeconds: awssdk.Int32(10),
+						HealthCheckTimeoutSeconds:  awssdk.Int32(5),
+						HealthyThresholdCount:      awssdk.Int32(3),
+						UnhealthyThresholdCount:    awssdk.Int32(2),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
@@ -885,13 +893,13 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 						Protocol: elbv2model.ProtocolTCP,
 						HealthCheckConfig: &elbv2model.TargetGroupHealthCheckConfig{
 							Port:                    &port8080,
-							Protocol:                &protocolHTTP,
+							Protocol:                protocolHTTP,
 							Path:                    awssdk.String("/"),
 							Matcher:                 &elbv2model.HealthCheckMatcher{HTTPCode: awssdk.String("200")},
-							IntervalSeconds:         awssdk.Int64(10),
-							TimeoutSeconds:          awssdk.Int64(5),
-							HealthyThresholdCount:   awssdk.Int64(3),
-							UnhealthyThresholdCount: awssdk.Int64(2),
+							IntervalSeconds:         awssdk.Int32(10),
+							TimeoutSeconds:          awssdk.Int32(5),
+							HealthyThresholdCount:   awssdk.Int32(3),
+							UnhealthyThresholdCount: awssdk.Int32(2),
 						},
 					},
 				},
@@ -902,19 +910,19 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 			name: "NLB TargetGroup healthCheck can change path",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						Protocol:            awssdk.String("TCP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						Protocol:            elbv2types.ProtocolEnumTcp,
 						HealthCheckEnabled:  awssdk.Bool(true),
 						HealthCheckPort:     awssdk.String("8080"),
-						HealthCheckProtocol: awssdk.String("HTTP"),
+						HealthCheckProtocol: elbv2types.ProtocolEnumHttp,
 						HealthCheckPath:     awssdk.String("/some-other"),
-						Matcher: &elbv2sdk.Matcher{
+						Matcher: &elbv2types.Matcher{
 							HttpCode: awssdk.String("200"),
 						},
-						HealthCheckIntervalSeconds: awssdk.Int64(10),
-						HealthCheckTimeoutSeconds:  awssdk.Int64(5),
-						HealthyThresholdCount:      awssdk.Int64(3),
-						UnhealthyThresholdCount:    awssdk.Int64(2),
+						HealthCheckIntervalSeconds: awssdk.Int32(10),
+						HealthCheckTimeoutSeconds:  awssdk.Int32(5),
+						HealthyThresholdCount:      awssdk.Int32(3),
+						UnhealthyThresholdCount:    awssdk.Int32(2),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
@@ -922,13 +930,13 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 						Protocol: elbv2model.ProtocolTCP,
 						HealthCheckConfig: &elbv2model.TargetGroupHealthCheckConfig{
 							Port:                    &port8080,
-							Protocol:                &protocolHTTP,
+							Protocol:                protocolHTTP,
 							Path:                    awssdk.String("/"),
 							Matcher:                 &elbv2model.HealthCheckMatcher{HTTPCode: awssdk.String("200")},
-							IntervalSeconds:         awssdk.Int64(10),
-							TimeoutSeconds:          awssdk.Int64(5),
-							HealthyThresholdCount:   awssdk.Int64(3),
-							UnhealthyThresholdCount: awssdk.Int64(2),
+							IntervalSeconds:         awssdk.Int32(10),
+							TimeoutSeconds:          awssdk.Int32(5),
+							HealthyThresholdCount:   awssdk.Int32(3),
+							UnhealthyThresholdCount: awssdk.Int32(2),
 						},
 					},
 				},
@@ -939,19 +947,19 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 			name: "NLB TargetGroup healthCheck can change healthyThresholdCount",
 			args: args{
 				sdkTG: TargetGroupWithTags{
-					TargetGroup: &elbv2sdk.TargetGroup{
-						Protocol:            awssdk.String("TCP"),
+					TargetGroup: &elbv2types.TargetGroup{
+						Protocol:            elbv2types.ProtocolEnumTcp,
 						HealthCheckEnabled:  awssdk.Bool(true),
 						HealthCheckPort:     awssdk.String("8080"),
-						HealthCheckProtocol: awssdk.String("HTTP"),
+						HealthCheckProtocol: elbv2types.ProtocolEnumHttp,
 						HealthCheckPath:     awssdk.String("/"),
-						Matcher: &elbv2sdk.Matcher{
+						Matcher: &elbv2types.Matcher{
 							HttpCode: awssdk.String("200"),
 						},
-						HealthCheckIntervalSeconds: awssdk.Int64(10),
-						HealthCheckTimeoutSeconds:  awssdk.Int64(5),
-						HealthyThresholdCount:      awssdk.Int64(4),
-						UnhealthyThresholdCount:    awssdk.Int64(2),
+						HealthCheckIntervalSeconds: awssdk.Int32(10),
+						HealthCheckTimeoutSeconds:  awssdk.Int32(5),
+						HealthyThresholdCount:      awssdk.Int32(4),
+						UnhealthyThresholdCount:    awssdk.Int32(2),
 					},
 				},
 				resTG: &elbv2model.TargetGroup{
@@ -959,13 +967,13 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 						Protocol: elbv2model.ProtocolTCP,
 						HealthCheckConfig: &elbv2model.TargetGroupHealthCheckConfig{
 							Port:                    &port8080,
-							Protocol:                &protocolHTTP,
+							Protocol:                protocolHTTP,
 							Path:                    awssdk.String("/"),
 							Matcher:                 &elbv2model.HealthCheckMatcher{HTTPCode: awssdk.String("200")},
-							IntervalSeconds:         awssdk.Int64(10),
-							TimeoutSeconds:          awssdk.Int64(5),
-							HealthyThresholdCount:   awssdk.Int64(3),
-							UnhealthyThresholdCount: awssdk.Int64(2),
+							IntervalSeconds:         awssdk.Int32(10),
+							TimeoutSeconds:          awssdk.Int32(5),
+							HealthyThresholdCount:   awssdk.Int32(3),
+							UnhealthyThresholdCount: awssdk.Int32(2),
 						},
 					},
 				},
@@ -975,7 +983,11 @@ func Test_isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(tt.args.sdkTG, tt.args.resTG)
+			featureGates := config.NewFeatureGates()
+			if tt.args.disableAdvancedNLBHealthCheckConfig {
+				featureGates.Disable(config.NLBHealthCheckAdvancedConfig)
+			}
+			got := isSDKTargetGroupRequiresReplacementDueToNLBHealthCheck(tt.args.sdkTG, tt.args.resTG, featureGates)
 			assert.Equal(t, tt.want, got)
 		})
 	}

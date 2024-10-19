@@ -2,14 +2,16 @@ package targetgroupbinding
 
 import (
 	"context"
+	libErrors "errors"
 	"fmt"
+	"github.com/aws/smithy-go"
 	"net"
 	"strings"
 	"sync"
 
-	awssdk "github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	ec2sdk "github.com/aws/aws-sdk-go/service/ec2"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -27,8 +29,8 @@ import (
 const (
 	tgbNetworkingIPPermissionLabelKey   = "elbv2.k8s.aws/targetGroupBinding"
 	tgbNetworkingIPPermissionLabelValue = "shared"
-	defaultTgbMinPort                   = int64(0)
-	defaultTgbMaxPort                   = int64(65535)
+	defaultTgbMinPort                   = int32(0)
+	defaultTgbMaxPort                   = int32(65535)
 )
 
 // NetworkingManager manages the networking for targetGroupBindings.
@@ -45,17 +47,18 @@ type NetworkingManager interface {
 
 // NewDefaultNetworkingManager constructs defaultNetworkingManager.
 func NewDefaultNetworkingManager(k8sClient client.Client, podENIResolver networking.PodENIInfoResolver, nodeENIResolver networking.NodeENIInfoResolver,
-	sgManager networking.SecurityGroupManager, sgReconciler networking.SecurityGroupReconciler, vpcID string, clusterName string, logger logr.Logger, disabledRestrictedSGRulesFlag bool) *defaultNetworkingManager {
+	sgManager networking.SecurityGroupManager, sgReconciler networking.SecurityGroupReconciler, vpcID string, clusterName string, serviceTargetENISGTags map[string]string, logger logr.Logger, disabledRestrictedSGRulesFlag bool) *defaultNetworkingManager {
 
 	return &defaultNetworkingManager{
-		k8sClient:       k8sClient,
-		podENIResolver:  podENIResolver,
-		nodeENIResolver: nodeENIResolver,
-		sgManager:       sgManager,
-		sgReconciler:    sgReconciler,
-		vpcID:           vpcID,
-		clusterName:     clusterName,
-		logger:          logger,
+		k8sClient:              k8sClient,
+		podENIResolver:         podENIResolver,
+		nodeENIResolver:        nodeENIResolver,
+		sgManager:              sgManager,
+		sgReconciler:           sgReconciler,
+		vpcID:                  vpcID,
+		clusterName:            clusterName,
+		serviceTargetENISGTags: serviceTargetENISGTags,
+		logger:                 logger,
 
 		mutex:                         sync.Mutex{},
 		ingressPermissionsPerSGByTGB:  make(map[types.NamespacedName]map[string][]networking.IPPermissionInfo),
@@ -67,14 +70,15 @@ func NewDefaultNetworkingManager(k8sClient client.Client, podENIResolver network
 
 // default implementation for NetworkingManager.
 type defaultNetworkingManager struct {
-	k8sClient       client.Client
-	podENIResolver  networking.PodENIInfoResolver
-	nodeENIResolver networking.NodeENIInfoResolver
-	sgManager       networking.SecurityGroupManager
-	sgReconciler    networking.SecurityGroupReconciler
-	vpcID           string
-	clusterName     string
-	logger          logr.Logger
+	k8sClient              client.Client
+	podENIResolver         networking.PodENIInfoResolver
+	nodeENIResolver        networking.NodeENIInfoResolver
+	sgManager              networking.SecurityGroupManager
+	sgReconciler           networking.SecurityGroupReconciler
+	vpcID                  string
+	clusterName            string
+	serviceTargetENISGTags map[string]string
+	logger                 logr.Logger
 
 	// mutex will serialize our TargetGroup's networking reconcile requests.
 	mutex sync.Mutex
@@ -199,11 +203,13 @@ func (m *defaultNetworkingManager) reconcileWithIngressPermissionsPerSG(ctx cont
 	aggregatedIngressPermissionsPerSG := m.computeAggregatedIngressPermissionsPerSG(ctx)
 
 	permissionSelector := labels.SelectorFromSet(labels.Set{tgbNetworkingIPPermissionLabelKey: tgbNetworkingIPPermissionLabelValue})
+	var sgReconciliationErrors []error
 	for sgID, permissions := range aggregatedIngressPermissionsPerSG {
 		if err := m.sgReconciler.ReconcileIngress(ctx, sgID, permissions,
 			networking.WithPermissionSelector(permissionSelector),
 			networking.WithAuthorizeOnly(!computedForAllTGBs)); err != nil {
-			return err
+			sgReconciliationErrors = append(sgReconciliationErrors, err)
+			continue
 		}
 	}
 
@@ -211,6 +217,11 @@ func (m *defaultNetworkingManager) reconcileWithIngressPermissionsPerSG(ctx cont
 		if err := m.gcIngressPermissionsFromUnusedEndpointSGs(ctx, aggregatedIngressPermissionsPerSG); err != nil {
 			return err
 		}
+	}
+
+	if len(sgReconciliationErrors) > 0 {
+		err := libErrors.Join(sgReconciliationErrors...)
+		return err
 	}
 
 	return nil
@@ -253,13 +264,13 @@ func (m *defaultNetworkingManager) groupIngressPermsBySourceAndProtocolPerSG(_ c
 					}
 					permsFromIPRangeRulesPerSG[sgID] = append(permsFromIPRangeRulesPerSG[sgID], permission)
 				} else {
-					protocol := awssdk.StringValue(permission.Permission.IpProtocol)
+					protocol := awssdk.ToString(permission.Permission.IpProtocol)
 					if _, ok := permsByProtocolAndSourcePerSG[sgID][protocol]; !ok {
 						permsByProtocolAndSourcePerSG[sgID][protocol] = make(map[string][]networking.IPPermissionInfo)
 					}
 					groupID := ""
 					if len(permission.Permission.UserIdGroupPairs) == 1 {
-						groupID = awssdk.StringValue(permission.Permission.UserIdGroupPairs[0].GroupId)
+						groupID = awssdk.ToString(permission.Permission.UserIdGroupPairs[0].GroupId)
 					}
 					if _, ok := permsByProtocolAndSourcePerSG[sgID][protocol][groupID]; !ok {
 						permsByProtocolAndSourcePerSG[sgID][protocol][groupID] = []networking.IPPermissionInfo{}
@@ -289,20 +300,20 @@ func (m *defaultNetworkingManager) computeRestrictedIngressPermissionsPerSG(ctx 
 				}
 				permForCurrGroup := perms[0]
 				for _, perm := range perms {
-					if awssdk.Int64Value(perm.Permission.FromPort) == 0 && awssdk.Int64Value(perm.Permission.ToPort) == 0 {
+					if awssdk.ToInt32(perm.Permission.FromPort) == 0 && awssdk.ToInt32(perm.Permission.ToPort) == 0 {
 						minPort = defaultTgbMinPort
 						maxPort = defaultTgbMaxPort
 					} else {
-						if awssdk.Int64Value(perm.Permission.FromPort) < minPort {
-							minPort = awssdk.Int64Value(perm.Permission.FromPort)
+						if awssdk.ToInt32(perm.Permission.FromPort) < minPort {
+							minPort = awssdk.ToInt32(perm.Permission.FromPort)
 						}
-						if awssdk.Int64Value(perm.Permission.ToPort) > maxPort {
-							maxPort = awssdk.Int64Value(perm.Permission.ToPort)
+						if awssdk.ToInt32(perm.Permission.ToPort) > maxPort {
+							maxPort = awssdk.ToInt32(perm.Permission.ToPort)
 						}
 					}
 				}
-				permForCurrGroup.Permission.FromPort = awssdk.Int64(minPort)
-				permForCurrGroup.Permission.ToPort = awssdk.Int64(maxPort)
+				permForCurrGroup.Permission.FromPort = awssdk.Int32(minPort)
+				permForCurrGroup.Permission.ToPort = awssdk.Int32(maxPort)
 				restrictedPermByProtocolPerSG[sgID] = append(restrictedPermByProtocolPerSG[sgID], permForCurrGroup)
 			}
 		}
@@ -374,8 +385,8 @@ func (m *defaultNetworkingManager) computeIngressPermissionsForTGBNetworking(ctx
 }
 
 type sdkFromToPortPair struct {
-	fromPort int64
-	toPort   int64
+	fromPort int32
+	toPort   int32
 }
 
 // computePermissionsForPeerPort computes the needed Inbound IPPermissions for specified peer and port.
@@ -415,7 +426,7 @@ func (m *defaultNetworkingManager) computePermissionsForPeerPort(ctx context.Con
 		groupID := peer.SecurityGroup.GroupID
 		permissions := make([]networking.IPPermissionInfo, 0, len(sdkFromToPortPairs))
 		for _, portPair := range sdkFromToPortPairs {
-			permission := networking.NewGroupIDIPPermission(sdkProtocol, awssdk.Int64(portPair.fromPort), awssdk.Int64(portPair.toPort), groupID, permissionLabels)
+			permission := networking.NewGroupIDIPPermission(sdkProtocol, awssdk.Int32(portPair.fromPort), awssdk.Int32(portPair.toPort), groupID, permissionLabels)
 			permissions = append(permissions, permission)
 		}
 		return permissions, nil
@@ -431,9 +442,9 @@ func (m *defaultNetworkingManager) computePermissionsForPeerPort(ctx context.Con
 		for _, portPair := range sdkFromToPortPairs {
 			var permission networking.IPPermissionInfo
 			if strings.Contains(cidr, ":") {
-				permission = networking.NewCIDRv6IPPermission(sdkProtocol, awssdk.Int64(portPair.fromPort), awssdk.Int64(portPair.toPort), cidr, permissionLabels)
+				permission = networking.NewCIDRv6IPPermission(sdkProtocol, awssdk.Int32(portPair.fromPort), awssdk.Int32(portPair.toPort), cidr, permissionLabels)
 			} else {
-				permission = networking.NewCIDRIPPermission(sdkProtocol, awssdk.Int64(portPair.fromPort), awssdk.Int64(portPair.toPort), cidr, permissionLabels)
+				permission = networking.NewCIDRIPPermission(sdkProtocol, awssdk.Int32(portPair.fromPort), awssdk.Int32(portPair.toPort), cidr, permissionLabels)
 			}
 			permissions = append(permissions, permission)
 		}
@@ -445,21 +456,21 @@ func (m *defaultNetworkingManager) computePermissionsForPeerPort(ctx context.Con
 
 // computeNumericalPorts computes the numerical ports if a named is used.
 // Note: multiple numerical ports can be returned since same named port might corresponding to different numerical ports on different pods.
-func (m *defaultNetworkingManager) computeNumericalPorts(_ context.Context, port intstr.IntOrString, pods []k8s.PodInfo) ([]int64, error) {
+func (m *defaultNetworkingManager) computeNumericalPorts(_ context.Context, port intstr.IntOrString, pods []k8s.PodInfo) ([]int32, error) {
 	if port.Type == intstr.Int {
-		return []int64{int64(port.IntVal)}, nil
+		return []int32{port.IntVal}, nil
 	}
 	if len(pods) == 0 {
 		return nil, errors.Errorf("named ports can only be used with pod endpoints")
 	}
 
-	containerPorts := sets.NewInt64()
+	containerPorts := sets.NewInt32()
 	for _, pod := range pods {
 		containerPort, err := pod.LookupContainerPort(port)
 		if err != nil {
 			return nil, err
 		}
-		containerPorts.Insert(containerPort)
+		containerPorts.Insert(int32(containerPort))
 	}
 	return containerPorts.List(), nil
 }
@@ -518,19 +529,33 @@ func (m *defaultNetworkingManager) resolveEndpointSGForENI(ctx context.Context, 
 		return "", err
 	}
 	clusterResourceTagKey := fmt.Sprintf("kubernetes.io/cluster/%s", m.clusterName)
-	sgIDsWithClusterTag := sets.NewString()
+	sgIDsWithMatchingEndpointSGTags := sets.NewString()
 	for sgID, sgInfo := range sgInfoByID {
 		if _, ok := sgInfo.Tags[clusterResourceTagKey]; ok {
-			sgIDsWithClusterTag.Insert(sgID)
+			matchesEndpointSGTags := true
+			for endpointSGTagKey, endpointSGTagValue := range m.serviceTargetENISGTags {
+				if _, ok := sgInfo.Tags[endpointSGTagKey]; !ok || sgInfo.Tags[endpointSGTagKey] != endpointSGTagValue {
+					matchesEndpointSGTags = false
+					break
+				}
+			}
+			if matchesEndpointSGTags {
+				sgIDsWithMatchingEndpointSGTags.Insert(sgID)
+			}
 		}
 	}
-	if len(sgIDsWithClusterTag) != 1 {
+
+	if len(sgIDsWithMatchingEndpointSGTags) != 1 {
 		// user may provide incorrect `--cluster-name` at bootstrap or modify the tag key unexpectedly, it is hard to find out if no clusterName included in error message.
 		// having `clusterName` included in error message might be helpful for shorten the troubleshooting time spent.
-		return "", errors.Errorf("expect exactly one securityGroup tagged with %v for eni %v, got: %v (clusterName: %v)",
-			clusterResourceTagKey, eniInfo.NetworkInterfaceID, sgIDsWithClusterTag.List(), m.clusterName)
+		if len(m.serviceTargetENISGTags) == 0 {
+			return "", errors.Errorf("expected exactly one securityGroup tagged with %v for eni %v, got: %v (clusterName: %v)",
+				clusterResourceTagKey, eniInfo.NetworkInterfaceID, sgIDsWithMatchingEndpointSGTags.List(), m.clusterName)
+		}
+		return "", errors.Errorf("expected exactly one securityGroup tagged with %v and %v for eni %v, got: %v (clusterName: %v)",
+			clusterResourceTagKey, m.serviceTargetENISGTags, eniInfo.NetworkInterfaceID, sgIDsWithMatchingEndpointSGTags.List(), m.clusterName)
 	}
-	sgID, _ := sgIDsWithClusterTag.PopAny()
+	sgID, _ := sgIDsWithMatchingEndpointSGTags.PopAny()
 	return sgID, nil
 }
 
@@ -563,14 +588,14 @@ func (m *defaultNetworkingManager) unTrackEndpointSGs(_ context.Context, sgIDs .
 func (m *defaultNetworkingManager) fetchEndpointSGsFromAWS(ctx context.Context) ([]string, error) {
 	clusterResourceTagKey := fmt.Sprintf("kubernetes.io/cluster/%s", m.clusterName)
 	req := &ec2sdk.DescribeSecurityGroupsInput{
-		Filters: []*ec2sdk.Filter{
+		Filters: []ec2types.Filter{
 			{
 				Name:   awssdk.String("tag:" + clusterResourceTagKey),
-				Values: awssdk.StringSlice([]string{"owned", "shared"}),
+				Values: []string{"owned", "shared"},
 			},
 			{
 				Name:   awssdk.String("vpc-id"),
-				Values: awssdk.StringSlice([]string{m.vpcID}),
+				Values: []string{m.vpcID},
 			},
 		},
 	}
@@ -582,9 +607,9 @@ func (m *defaultNetworkingManager) fetchEndpointSGsFromAWS(ctx context.Context) 
 }
 
 func isEC2SecurityGroupNotFoundError(err error) bool {
-	var awsErr awserr.Error
-	if errors.As(err, &awsErr) {
-		return awsErr.Code() == "InvalidGroup.NotFound"
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.ErrorCode() == "InvalidGroup.NotFound"
 	}
 	return false
 }

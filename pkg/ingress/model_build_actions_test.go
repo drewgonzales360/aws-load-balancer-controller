@@ -2,7 +2,7 @@ package ingress
 
 import (
 	"context"
-	awssdk "github.com/aws/aws-sdk-go/aws"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -78,7 +78,7 @@ func Test_defaultModelBuildTask_buildAuthenticateOIDCAction(t *testing.T) {
 					AuthenticationRequestExtraParams: map[string]string{
 						"key1": "value1",
 					},
-					OnUnauthenticatedRequest: &authBehaviorAuthenticate,
+					OnUnauthenticatedRequest: authBehaviorAuthenticate,
 					Scope:                    awssdk.String("email"),
 					SessionCookieName:        awssdk.String("my-session-cookie"),
 					SessionTimeout:           awssdk.Int64(65536),
@@ -133,7 +133,7 @@ func Test_defaultModelBuildTask_buildAuthenticateOIDCAction(t *testing.T) {
 					AuthenticationRequestExtraParams: map[string]string{
 						"key1": "value1",
 					},
-					OnUnauthenticatedRequest: &authBehaviorAuthenticate,
+					OnUnauthenticatedRequest: authBehaviorAuthenticate,
 					Scope:                    awssdk.String("email"),
 					SessionCookieName:        awssdk.String("my-session-cookie"),
 					SessionTimeout:           awssdk.Int64(65536),
@@ -229,7 +229,7 @@ func Test_defaultModelBuildTask_buildAuthenticateOIDCAction(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			k8sSchema := runtime.NewScheme()
 			clientgoscheme.AddToScheme(k8sSchema)
-			k8sClient := testclient.NewFakeClientWithScheme(k8sSchema)
+			k8sClient := testclient.NewClientBuilder().WithScheme(k8sSchema).Build()
 			for _, secret := range tt.env.secrets {
 				err := k8sClient.Create(context.Background(), secret.DeepCopy())
 				assert.NoError(t, err)

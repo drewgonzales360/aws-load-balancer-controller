@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -14,9 +14,13 @@ import (
 )
 
 func (t *defaultModelBuildTask) buildListeners(ctx context.Context, scheme elbv2model.LoadBalancerScheme) error {
-	cfg := t.buildListenerConfig(ctx)
+	cfg, err := t.buildListenerConfig(ctx)
+	if err != nil {
+		return err
+	}
+
 	for _, port := range t.service.Spec.Ports {
-		_, err := t.buildListener(ctx, port, cfg, scheme)
+		_, err := t.buildListener(ctx, port, *cfg, scheme)
 		if err != nil {
 			return err
 		}
@@ -69,15 +73,20 @@ func (t *defaultModelBuildTask) buildListenerSpec(ctx context.Context, port core
 	}
 
 	defaultActions := t.buildListenerDefaultActions(ctx, targetGroup)
+	lsAttributes, attributesErr := t.buildListenerAttributes(ctx, t.service.Annotations, port.Port, listenerProtocol)
+	if attributesErr != nil {
+		return elbv2model.ListenerSpec{}, attributesErr
+	}
 	return elbv2model.ListenerSpec{
-		LoadBalancerARN: t.loadBalancer.LoadBalancerARN(),
-		Port:            int64(port.Port),
-		Protocol:        listenerProtocol,
-		Certificates:    certificates,
-		SSLPolicy:       sslPolicy,
-		ALPNPolicy:      alpnPolicy,
-		DefaultActions:  defaultActions,
-		Tags:            tags,
+		LoadBalancerARN:    t.loadBalancer.LoadBalancerARN(),
+		Port:               port.Port,
+		Protocol:           listenerProtocol,
+		Certificates:       certificates,
+		SSLPolicy:          sslPolicy,
+		ALPNPolicy:         alpnPolicy,
+		DefaultActions:     defaultActions,
+		Tags:               tags,
+		ListenerAttributes: lsAttributes,
 	}, nil
 }
 
@@ -115,10 +124,43 @@ func (t *defaultModelBuildTask) buildListenerCertificates(_ context.Context) []e
 	return certificates
 }
 
-func (t *defaultModelBuildTask) buildTLSPortsSet(_ context.Context) sets.String {
+func validateTLSPortsSet(rawTLSPorts []string, ports []corev1.ServicePort) error {
+	unusedPorts := make([]string, 0)
+
+	for _, tlsPort := range rawTLSPorts {
+		isPortUsed := false
+		for _, portObj := range ports {
+			if portObj.Name == tlsPort || strconv.Itoa(int(portObj.Port)) == tlsPort {
+				isPortUsed = true
+				break
+			}
+		}
+
+		if !isPortUsed {
+			unusedPorts = append(unusedPorts, tlsPort)
+		}
+	}
+
+	if len(unusedPorts) > 0 {
+		unusedPortErr := errors.Errorf("Unused port in ssl-ports annotation %v", unusedPorts)
+		return unusedPortErr
+	}
+
+	return nil
+}
+
+func (t *defaultModelBuildTask) buildTLSPortsSet(_ context.Context) (sets.String, error) {
 	var rawTLSPorts []string
+
 	_ = t.annotationParser.ParseStringSliceAnnotation(annotations.SvcLBSuffixSSLPorts, &rawTLSPorts, t.service.Annotations)
-	return sets.NewString(rawTLSPorts...)
+
+	err := validateTLSPortsSet(rawTLSPorts, t.service.Spec.Ports)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return sets.NewString(rawTLSPorts...), nil
 }
 
 func (t *defaultModelBuildTask) buildBackendProtocol(_ context.Context) string {
@@ -154,20 +196,41 @@ type listenerConfig struct {
 	backendProtocol string
 }
 
-func (t *defaultModelBuildTask) buildListenerConfig(ctx context.Context) listenerConfig {
+func (t *defaultModelBuildTask) buildListenerConfig(ctx context.Context) (*listenerConfig, error) {
 	certificates := t.buildListenerCertificates(ctx)
-	tlsPortsSet := t.buildTLSPortsSet(ctx)
+	tlsPortsSet, err := t.buildTLSPortsSet(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	backendProtocol := t.buildBackendProtocol(ctx)
 	sslPolicy := t.buildSSLNegotiationPolicy(ctx)
 
-	return listenerConfig{
+	return &listenerConfig{
 		certificates:    certificates,
 		tlsPortsSet:     tlsPortsSet,
 		sslPolicy:       sslPolicy,
 		backendProtocol: backendProtocol,
-	}
+	}, nil
 }
 
 func (t *defaultModelBuildTask) buildListenerTags(ctx context.Context) (map[string]string, error) {
 	return t.buildAdditionalResourceTags(ctx)
+}
+
+// Build attributes for listener
+func (t *defaultModelBuildTask) buildListenerAttributes(ctx context.Context, svcAnnotations map[string]string, port int32, listenerProtocol elbv2model.Protocol) ([]elbv2model.ListenerAttribute, error) {
+	var rawAttributes map[string]string
+	annotationKey := fmt.Sprintf("%v.%v-%v", annotations.SvcLBSuffixlsAttsAnnotationPrefix, listenerProtocol, port)
+	if _, err := t.annotationParser.ParseStringMapAnnotation(annotationKey, &rawAttributes, svcAnnotations); err != nil {
+		return nil, err
+	}
+	attributes := make([]elbv2model.ListenerAttribute, 0, len(rawAttributes))
+	for attrKey, attrValue := range rawAttributes {
+		attributes = append(attributes, elbv2model.ListenerAttribute{
+			Key:   attrKey,
+			Value: attrValue,
+		})
+	}
+	return attributes, nil
 }

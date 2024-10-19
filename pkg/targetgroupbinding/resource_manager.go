@@ -2,24 +2,21 @@ package targetgroupbinding
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"inet.af/netaddr"
+	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/aws/smithy-go"
+	"net/netip"
 	"time"
 
 	"k8s.io/client-go/tools/record"
 
-	awssdk "github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	elbv2sdk "github.com/aws/aws-sdk-go/service/elbv2"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	elbv2api "sigs.k8s.io/aws-load-balancer-controller/apis/elbv2/v1beta1"
 	"sigs.k8s.io/aws-load-balancer-controller/pkg/aws/services"
 	"sigs.k8s.io/aws-load-balancer-controller/pkg/backend"
@@ -42,6 +39,7 @@ func NewDefaultResourceManager(k8sClient client.Client, elbv2Client services.ELB
 	podInfoRepo k8s.PodInfoRepo, sgManager networking.SecurityGroupManager, sgReconciler networking.SecurityGroupReconciler,
 	vpcInfoProvider networking.VPCInfoProvider,
 	vpcID string, clusterName string, failOpenEnabled bool, endpointSliceEnabled bool, disabledRestrictedSGRulesFlag bool,
+	endpointSGTags map[string]string,
 	eventRecorder record.EventRecorder, logger logr.Logger) *defaultResourceManager {
 	targetsManager := NewCachedTargetsManager(elbv2Client, logger)
 	endpointResolver := backend.NewDefaultEndpointResolver(k8sClient, podInfoRepo, failOpenEnabled, endpointSliceEnabled, logger)
@@ -50,7 +48,7 @@ func NewDefaultResourceManager(k8sClient client.Client, elbv2Client services.ELB
 	podENIResolver := networking.NewDefaultPodENIInfoResolver(k8sClient, ec2Client, nodeInfoProvider, vpcID, logger)
 	nodeENIResolver := networking.NewDefaultNodeENIInfoResolver(nodeInfoProvider, logger)
 
-	networkingManager := NewDefaultNetworkingManager(k8sClient, podENIResolver, nodeENIResolver, sgManager, sgReconciler, vpcID, clusterName, logger, disabledRestrictedSGRulesFlag)
+	networkingManager := NewDefaultNetworkingManager(k8sClient, podENIResolver, nodeENIResolver, sgManager, sgReconciler, vpcID, clusterName, endpointSGTags, logger, disabledRestrictedSGRulesFlag)
 	return &defaultResourceManager{
 		k8sClient:         k8sClient,
 		targetsManager:    targetsManager,
@@ -129,6 +127,7 @@ func (m *defaultResourceManager) reconcileWithIPTargetType(ctx context.Context, 
 	}
 
 	tgARN := tgb.Spec.TargetGroupARN
+	vpcID := tgb.Spec.VpcID
 	targets, err := m.targetsManager.ListTargets(ctx, tgARN)
 	if err != nil {
 		return err
@@ -136,8 +135,10 @@ func (m *defaultResourceManager) reconcileWithIPTargetType(ctx context.Context, 
 	notDrainingTargets, drainingTargets := partitionTargetsByDrainingStatus(targets)
 	matchedEndpointAndTargets, unmatchedEndpoints, unmatchedTargets := matchPodEndpointWithTargets(endpoints, notDrainingTargets)
 
+	needNetworkingRequeue := false
 	if err := m.networkingManager.ReconcileForPodEndpoints(ctx, tgb, endpoints); err != nil {
-		return err
+		m.eventRecorder.Event(tgb, corev1.EventTypeWarning, k8s.TargetGroupBindingEventReasonFailedNetworkReconcile, err.Error())
+		needNetworkingRequeue = true
 	}
 	if len(unmatchedTargets) > 0 {
 		if err := m.deregisterTargets(ctx, tgARN, unmatchedTargets); err != nil {
@@ -145,7 +146,7 @@ func (m *defaultResourceManager) reconcileWithIPTargetType(ctx context.Context, 
 		}
 	}
 	if len(unmatchedEndpoints) > 0 {
-		if err := m.registerPodEndpoints(ctx, tgARN, unmatchedEndpoints); err != nil {
+		if err := m.registerPodEndpoints(ctx, tgARN, vpcID, unmatchedEndpoints); err != nil {
 			return err
 		}
 	}
@@ -167,6 +168,10 @@ func (m *defaultResourceManager) reconcileWithIPTargetType(ctx context.Context, 
 	}
 
 	_ = drainingTargets
+
+	if needNetworkingRequeue {
+		return runtime.NewRequeueNeeded("networking reconciliation")
+	}
 	return nil
 }
 
@@ -252,9 +257,9 @@ func (m *defaultResourceManager) updateTargetHealthPodCondition(ctx context.Cont
 
 	for _, endpoint := range unmatchedEndpoints {
 		pod := endpoint.Pod
-		targetHealth := &elbv2sdk.TargetHealth{
-			State:       awssdk.String(elbv2sdk.TargetHealthStateEnumInitial),
-			Reason:      awssdk.String(elbv2sdk.TargetHealthReasonEnumElbRegistrationInProgress),
+		targetHealth := &elbv2types.TargetHealth{
+			State:       elbv2types.TargetHealthStateEnumInitial,
+			Reason:      elbv2types.TargetHealthReasonEnumRegistrationInProgress,
 			Description: awssdk.String("Target registration is in progress"),
 		}
 		needFurtherProbe, err := m.updateTargetHealthPodConditionForPod(ctx, pod, targetHealth, targetHealthCondType)
@@ -271,7 +276,7 @@ func (m *defaultResourceManager) updateTargetHealthPodCondition(ctx context.Cont
 // updateTargetHealthPodConditionForPod updates pod's targetHealth condition for a single pod and its matched target.
 // returns whether further probe is needed or not.
 func (m *defaultResourceManager) updateTargetHealthPodConditionForPod(ctx context.Context, pod k8s.PodInfo,
-	targetHealth *elbv2sdk.TargetHealth, targetHealthCondType corev1.PodConditionType) (bool, error) {
+	targetHealth *elbv2types.TargetHealth, targetHealthCondType corev1.PodConditionType) (bool, error) {
 	if !pod.HasAnyOfReadinessGates([]corev1.PodConditionType{targetHealthCondType}) {
 		return false, nil
 	}
@@ -279,20 +284,20 @@ func (m *defaultResourceManager) updateTargetHealthPodConditionForPod(ctx contex
 	targetHealthCondStatus := corev1.ConditionUnknown
 	var reason, message string
 	if targetHealth != nil {
-		if awssdk.StringValue(targetHealth.State) == elbv2sdk.TargetHealthStateEnumHealthy {
+		if string(targetHealth.State) == string(elbv2types.TargetHealthStateEnumHealthy) {
 			targetHealthCondStatus = corev1.ConditionTrue
 		} else {
 			targetHealthCondStatus = corev1.ConditionFalse
 		}
 
-		reason = awssdk.StringValue(targetHealth.Reason)
-		message = awssdk.StringValue(targetHealth.Description)
+		reason = string(targetHealth.Reason)
+		message = awssdk.ToString(targetHealth.Description)
 	}
 	needFurtherProbe := targetHealthCondStatus != corev1.ConditionTrue
 
-	existingTargetHealthCond, exists := pod.GetPodCondition(targetHealthCondType)
+	existingTargetHealthCond, hasExistingTargetHealthCond := pod.GetPodCondition(targetHealthCondType)
 	// we skip patch pod if it matches current computed status/reason/message.
-	if exists &&
+	if hasExistingTargetHealthCond &&
 		existingTargetHealthCond.Status == targetHealthCondStatus &&
 		existingTargetHealthCond.Reason == reason &&
 		existingTargetHealthCond.Message == message {
@@ -305,22 +310,30 @@ func (m *defaultResourceManager) updateTargetHealthPodConditionForPod(ctx contex
 		Reason:  reason,
 		Message: message,
 	}
-	if !exists || existingTargetHealthCond.Status != targetHealthCondStatus {
+	if !hasExistingTargetHealthCond || existingTargetHealthCond.Status != targetHealthCondStatus {
 		newTargetHealthCond.LastTransitionTime = metav1.Now()
+	} else {
+		newTargetHealthCond.LastTransitionTime = existingTargetHealthCond.LastTransitionTime
 	}
 
-	patch, err := buildPodConditionPatch(pod, newTargetHealthCond)
-	if err != nil {
-		return false, err
-	}
-	k8sPod := &corev1.Pod{
+	podPatchSource := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: pod.Key.Namespace,
 			Name:      pod.Key.Name,
-			UID:       pod.UID,
+		},
+		Status: corev1.PodStatus{
+			Conditions: []corev1.PodCondition{},
 		},
 	}
-	if err := m.k8sClient.Status().Patch(ctx, k8sPod, patch); err != nil {
+	if hasExistingTargetHealthCond {
+		podPatchSource.Status.Conditions = []corev1.PodCondition{existingTargetHealthCond}
+	}
+
+	podPatchTarget := podPatchSource.DeepCopy()
+	podPatchTarget.UID = pod.UID // only put the uid in the new object to ensure it appears in the patch as a precondition
+	podPatchTarget.Status.Conditions = []corev1.PodCondition{newTargetHealthCond}
+
+	if err := m.k8sClient.Status().Patch(ctx, podPatchTarget, client.StrategicMergeFrom(podPatchSource)); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
 		}
@@ -349,8 +362,8 @@ func (m *defaultResourceManager) updatePodAsHealthyForDeletedTGB(ctx context.Con
 			continue
 		}
 		if pod.HasAnyOfReadinessGates([]corev1.PodConditionType{targetHealthCondType}) {
-			targetHealth := &elbv2sdk.TargetHealth{
-				State:       awssdk.String(elbv2sdk.TargetHealthStateEnumHealthy),
+			targetHealth := &elbv2types.TargetHealth{
+				State:       elbv2types.TargetHealthStateEnumHealthy,
 				Description: awssdk.String("Target Group Binding is deleted"),
 			}
 			_, err := m.updateTargetHealthPodConditionForPod(ctx, pod, targetHealth, targetHealthCondType)
@@ -363,15 +376,22 @@ func (m *defaultResourceManager) updatePodAsHealthyForDeletedTGB(ctx context.Con
 }
 
 func (m *defaultResourceManager) deregisterTargets(ctx context.Context, tgARN string, targets []TargetInfo) error {
-	sdkTargets := make([]elbv2sdk.TargetDescription, 0, len(targets))
+	sdkTargets := make([]elbv2types.TargetDescription, 0, len(targets))
 	for _, target := range targets {
 		sdkTargets = append(sdkTargets, target.Target)
 	}
 	return m.targetsManager.DeregisterTargets(ctx, tgARN, sdkTargets)
 }
 
-func (m *defaultResourceManager) registerPodEndpoints(ctx context.Context, tgARN string, endpoints []backend.PodEndpoint) error {
-	vpcInfo, err := m.vpcInfoProvider.FetchVPCInfo(ctx, m.vpcID)
+func (m *defaultResourceManager) registerPodEndpoints(ctx context.Context, tgARN, tgVpcID string, endpoints []backend.PodEndpoint) error {
+	vpcID := m.vpcID
+	// Target group is in a different VPC from the cluster's VPC
+	if tgVpcID != "" && tgVpcID != m.vpcID {
+		vpcID = tgVpcID
+		m.logger.Info("registering endpoints using the targetGroup's vpcID", tgVpcID,
+			"which is different from the cluster's vpcID", m.vpcID)
+	}
+	vpcInfo, err := m.vpcInfoProvider.FetchVPCInfo(ctx, vpcID)
 	if err != nil {
 		return err
 	}
@@ -383,13 +403,13 @@ func (m *defaultResourceManager) registerPodEndpoints(ctx context.Context, tgARN
 		return err
 	}
 
-	sdkTargets := make([]elbv2sdk.TargetDescription, 0, len(endpoints))
+	sdkTargets := make([]elbv2types.TargetDescription, 0, len(endpoints))
 	for _, endpoint := range endpoints {
-		target := elbv2sdk.TargetDescription{
+		target := elbv2types.TargetDescription{
 			Id:   awssdk.String(endpoint.IP),
-			Port: awssdk.Int64(endpoint.Port),
+			Port: awssdk.Int32(endpoint.Port),
 		}
-		podIP, err := netaddr.ParseIP(endpoint.IP)
+		podIP, err := netip.ParseAddr(endpoint.IP)
 		if err != nil {
 			return err
 		}
@@ -402,11 +422,11 @@ func (m *defaultResourceManager) registerPodEndpoints(ctx context.Context, tgARN
 }
 
 func (m *defaultResourceManager) registerNodePortEndpoints(ctx context.Context, tgARN string, endpoints []backend.NodePortEndpoint) error {
-	sdkTargets := make([]elbv2sdk.TargetDescription, 0, len(endpoints))
+	sdkTargets := make([]elbv2types.TargetDescription, 0, len(endpoints))
 	for _, endpoint := range endpoints {
-		sdkTargets = append(sdkTargets, elbv2sdk.TargetDescription{
+		sdkTargets = append(sdkTargets, elbv2types.TargetDescription{
 			Id:   awssdk.String(endpoint.InstanceID),
-			Port: awssdk.Int64(endpoint.Port),
+			Port: awssdk.Int32(endpoint.Port),
 		})
 	}
 	return m.targetsManager.RegisterTargets(ctx, tgARN, sdkTargets)
@@ -451,7 +471,7 @@ func matchPodEndpointWithTargets(endpoints []backend.PodEndpoint, targets []Targ
 	}
 	targetsByUID := make(map[string]TargetInfo, len(targets))
 	for _, target := range targets {
-		targetUID := fmt.Sprintf("%v:%v", awssdk.StringValue(target.Target.Id), awssdk.Int64Value(target.Target.Port))
+		targetUID := fmt.Sprintf("%v:%v", awssdk.ToString(target.Target.Id), awssdk.ToInt32(target.Target.Port))
 		targetsByUID[targetUID] = target
 	}
 	endpointUIDs := sets.StringKeySet(endpointsByUID)
@@ -490,7 +510,7 @@ func matchNodePortEndpointWithTargets(endpoints []backend.NodePortEndpoint, targ
 	}
 	targetsByUID := make(map[string]TargetInfo, len(targets))
 	for _, target := range targets {
-		targetUID := fmt.Sprintf("%v:%v", awssdk.StringValue(target.Target.Id), awssdk.Int64Value(target.Target.Port))
+		targetUID := fmt.Sprintf("%v:%v", awssdk.ToString(target.Target.Id), awssdk.ToInt32(target.Target.Port))
 		targetsByUID[targetUID] = target
 	}
 	endpointUIDs := sets.StringKeySet(endpointsByUID)
@@ -512,43 +532,24 @@ func matchNodePortEndpointWithTargets(endpoints []backend.NodePortEndpoint, targ
 	return matchedEndpointAndTargets, unmatchedEndpoints, unmatchedTargets
 }
 
-func buildPodConditionPatch(pod k8s.PodInfo, condition corev1.PodCondition) (client.Patch, error) {
-	oldData, err := json.Marshal(corev1.Pod{
-		Status: corev1.PodStatus{
-			Conditions: nil,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	newData, err := json.Marshal(corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{UID: pod.UID}, // only put the uid in the new object to ensure it appears in the patch as a precondition
-		Status: corev1.PodStatus{
-			Conditions: []corev1.PodCondition{condition},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, corev1.Pod{})
-	if err != nil {
-		return nil, err
-	}
-	return client.RawPatch(types.StrategicMergePatchType, patchBytes), nil
-}
-
 func isELBV2TargetGroupNotFoundError(err error) bool {
-	var awsErr awserr.Error
+	var awsErr *elbv2types.TargetGroupNotFoundException
 	if errors.As(err, &awsErr) {
-		return awsErr.Code() == "TargetGroupNotFound"
+		return true
 	}
 	return false
 }
 
 func isELBV2TargetGroupARNInvalidError(err error) bool {
-	var awsErr awserr.Error
+	var awsErr *elbv2types.InvalidTargetException
 	if errors.As(err, &awsErr) {
-		return awsErr.Code() == "ValidationError"
+		return true
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		code := apiErr.ErrorCode()
+
+		return code == "ValidationError"
 	}
 	return false
 }

@@ -2,8 +2,12 @@ package networking
 
 import (
 	"context"
-	awssdk "github.com/aws/aws-sdk-go/aws"
-	ec2sdk "github.com/aws/aws-sdk-go/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"testing"
+
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/go-logr/logr"
 	"github.com/golang/mock/gomock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -16,7 +20,6 @@ import (
 	"sigs.k8s.io/aws-load-balancer-controller/pkg/k8s"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"testing"
 )
 
 func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
@@ -28,12 +31,12 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 			ProviderID: "aws:///us-west-2a/i-0fa2d0064e848c69a",
 		},
 	}
-	instanceA := &ec2sdk.Instance{
+	instanceA := &ec2types.Instance{
 		InstanceId: awssdk.String("i-0fa2d0064e848c69a"),
-		NetworkInterfaces: []*ec2sdk.InstanceNetworkInterface{
+		NetworkInterfaces: []ec2types.InstanceNetworkInterface{
 			{
 				NetworkInterfaceId: awssdk.String("eni-a"),
-				PrivateIpAddresses: []*ec2sdk.InstancePrivateIpAddress{
+				PrivateIpAddresses: []ec2types.InstancePrivateIpAddress{
 					{
 						PrivateIpAddress: awssdk.String("192.168.200.1"),
 					},
@@ -41,10 +44,10 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 						PrivateIpAddress: awssdk.String("192.168.200.2"),
 					},
 				},
-				Attachment: &ec2sdk.InstanceNetworkInterfaceAttachment{
-					DeviceIndex: awssdk.Int64(0),
+				Attachment: &ec2types.InstanceNetworkInterfaceAttachment{
+					DeviceIndex: awssdk.Int32(0),
 				},
-				Groups: []*ec2sdk.GroupIdentifier{
+				Groups: []ec2types.GroupIdentifier{
 					{
 						GroupId: awssdk.String("sg-a-1"),
 					},
@@ -54,12 +57,12 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 	}
 	type describeNetworkInterfacesAsListCall struct {
 		req  *ec2sdk.DescribeNetworkInterfacesInput
-		resp []*ec2sdk.NetworkInterface
+		resp []ec2types.NetworkInterface
 		err  error
 	}
 	type fetchNodeInstancesCall struct {
 		nodes                 []*corev1.Node
-		nodeInstanceByNodeKey map[types.NamespacedName]*ec2sdk.Instance
+		nodeInstanceByNodeKey map[types.NamespacedName]*ec2types.Instance
 		err                   error
 	}
 	type env struct {
@@ -92,12 +95,12 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							NetworkInterfaceIds: awssdk.StringSlice([]string{"eni-a", "eni-b"}),
+							NetworkInterfaceIds: []string{"eni-a", "eni-b"},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-a"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-a-1"),
 									},
@@ -105,7 +108,7 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 							},
 							{
 								NetworkInterfaceId: awssdk.String("eni-b"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-b-1"),
 									},
@@ -115,12 +118,12 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 					},
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							NetworkInterfaceIds: awssdk.StringSlice([]string{"eni-c", "eni-d"}),
+							NetworkInterfaceIds: []string{"eni-c", "eni-d"},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-c"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-c-1"),
 									},
@@ -128,7 +131,7 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 							},
 							{
 								NetworkInterfaceId: awssdk.String("eni-d"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-d-1"),
 									},
@@ -230,12 +233,12 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							NetworkInterfaceIds: awssdk.StringSlice([]string{"eni-a", "eni-b"}),
+							NetworkInterfaceIds: []string{"eni-a", "eni-b"},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-a"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-a-1"),
 									},
@@ -243,7 +246,7 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 							},
 							{
 								NetworkInterfaceId: awssdk.String("eni-b"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-b-1"),
 									},
@@ -253,12 +256,12 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 					},
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							NetworkInterfaceIds: awssdk.StringSlice([]string{"eni-c"}),
+							NetworkInterfaceIds: []string{"eni-c"},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-c"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-c-1"),
 									},
@@ -360,12 +363,12 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							NetworkInterfaceIds: awssdk.StringSlice([]string{"eni-a", "eni-b"}),
+							NetworkInterfaceIds: []string{"eni-a", "eni-b"},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-a"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-a-1"),
 									},
@@ -373,7 +376,7 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 							},
 							{
 								NetworkInterfaceId: awssdk.String("eni-b"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-b-1"),
 									},
@@ -459,24 +462,32 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
-								{
-									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-abc"}),
+							NetworkInterfaceIds: []string{"eni-a", "eni-b"},
+						},
+						resp: []ec2types.NetworkInterface{
+							{
+								NetworkInterfaceId: awssdk.String("eni-a"),
+								Groups: []ec2types.GroupIdentifier{
+									{
+										GroupId: awssdk.String("sg-a-1"),
+									},
 								},
-								{
-									Name:   awssdk.String("addresses.private-ip-address"),
-									Values: awssdk.StringSlice([]string{"192.168.200.3"}),
+							},
+							{
+								NetworkInterfaceId: awssdk.String("eni-b"),
+								Groups: []ec2types.GroupIdentifier{
+									{
+										GroupId: awssdk.String("sg-b-1"),
+									},
 								},
 							},
 						},
-						resp: nil,
 					},
 				},
 				fetchNodeInstancesCalls: []fetchNodeInstancesCall{
 					{
 						nodes: []*corev1.Node{nodeA},
-						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2sdk.Instance{
+						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2types.Instance{
 							types.NamespacedName{Name: "node-a"}: instanceA,
 						},
 					},
@@ -491,18 +502,36 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 								UID:      types.UID("2d8740a6-f4b1-4074-a91c-f0084ec0bc01"),
 								NodeName: "node-a",
 								PodIP:    "192.168.200.1",
+								ENIInfos: []k8s.PodENIInfo{
+									{
+										ENIID:     "eni-a",
+										PrivateIP: "192.168.200.1",
+									},
+								},
 							},
 							{
 								Key:      types.NamespacedName{Namespace: "default", Name: "pod-1"},
 								UID:      types.UID("2d8740a6-f4b1-4074-a91c-f0084ec0bc02"),
 								NodeName: "node-a",
 								PodIP:    "192.168.200.2",
+								ENIInfos: []k8s.PodENIInfo{
+									{
+										ENIID:     "eni-b",
+										PrivateIP: "192.168.200.2",
+									},
+								},
 							},
 							{
 								Key:      types.NamespacedName{Namespace: "default", Name: "pod-3"},
 								UID:      types.UID("2d8740a6-f4b1-4074-a91c-f0084ec0bc02"),
 								NodeName: "node-a",
 								PodIP:    "192.168.200.3",
+								ENIInfos: []k8s.PodENIInfo{
+									{
+										ENIID:     "eni-a",
+										PrivateIP: "192.168.200.1",
+									},
+								},
 							},
 						},
 					},
@@ -536,7 +565,7 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 				}
 				nodeInfoProvider.EXPECT().FetchNodeInstances(gomock.Any(), gomock.InAnyOrder(updatedNodes)).Return(call.nodeInstanceByNodeKey, call.err)
 			}
-			r := NewDefaultPodENIInfoResolver(k8sClient, ec2Client, nodeInfoProvider, "vpc-abc", &log.NullLogger{})
+			r := NewDefaultPodENIInfoResolver(k8sClient, ec2Client, nodeInfoProvider, "vpc-abc", logr.New(&log.NullLogSink{}))
 			for _, call := range tt.wantResolveCalls {
 				got, err := r.Resolve(context.Background(), call.args.pods)
 				if call.wantErr != nil {
@@ -550,7 +579,7 @@ func Test_defaultPodENIInfoResolver_Resolve(t *testing.T) {
 	}
 }
 
-func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
+func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup_EC2(t *testing.T) {
 	nodeA := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "node-a",
@@ -559,34 +588,12 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 			ProviderID: "aws:///us-west-2a/i-0fa2d0064e848c69a",
 		},
 	}
-	nodeB := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "node-b",
-			Labels: map[string]string{
-				"eks.amazonaws.com/compute-type": "fargate",
-			},
-		},
-		Spec: corev1.NodeSpec{
-			ProviderID: "aws:///us-west-2b/xxxxxxxx/fargate-ip-192-168-128-147.us-west-2.compute.internal",
-		},
-	}
-	nodeC := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "node-c",
-			Labels: map[string]string{
-				"eks.amazonaws.com/compute-type": "fargate",
-			},
-		},
-		Spec: corev1.NodeSpec{
-			ProviderID: "aws:///us-west-2b/xxxxxxxx/fargate-ip-192-168-128-148.us-west-2.compute.internal",
-		},
-	}
-	instanceA := &ec2sdk.Instance{
+	instanceA := &ec2types.Instance{
 		InstanceId: awssdk.String("i-0fa2d0064e848c69a"),
-		NetworkInterfaces: []*ec2sdk.InstanceNetworkInterface{
+		NetworkInterfaces: []ec2types.InstanceNetworkInterface{
 			{
 				NetworkInterfaceId: awssdk.String("eni-a"),
-				PrivateIpAddresses: []*ec2sdk.InstancePrivateIpAddress{
+				PrivateIpAddresses: []ec2types.InstancePrivateIpAddress{
 					{
 						PrivateIpAddress: awssdk.String("192.168.200.1"),
 					},
@@ -594,10 +601,10 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 						PrivateIpAddress: awssdk.String("192.168.200.2"),
 					},
 				},
-				Attachment: &ec2sdk.InstanceNetworkInterfaceAttachment{
-					DeviceIndex: awssdk.Int64(0),
+				Attachment: &ec2types.InstanceNetworkInterfaceAttachment{
+					DeviceIndex: awssdk.Int32(0),
 				},
-				Groups: []*ec2sdk.GroupIdentifier{
+				Groups: []ec2types.GroupIdentifier{
 					{
 						GroupId: awssdk.String("sg-a-1"),
 					},
@@ -605,7 +612,7 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 			},
 			{
 				NetworkInterfaceId: awssdk.String("eni-b"),
-				PrivateIpAddresses: []*ec2sdk.InstancePrivateIpAddress{
+				PrivateIpAddresses: []ec2types.InstancePrivateIpAddress{
 					{
 						PrivateIpAddress: awssdk.String("192.168.200.3"),
 					},
@@ -613,10 +620,10 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 						PrivateIpAddress: awssdk.String("192.168.200.4"),
 					},
 				},
-				Attachment: &ec2sdk.InstanceNetworkInterfaceAttachment{
-					DeviceIndex: awssdk.Int64(1),
+				Attachment: &ec2types.InstanceNetworkInterfaceAttachment{
+					DeviceIndex: awssdk.Int32(1),
 				},
-				Groups: []*ec2sdk.GroupIdentifier{
+				Groups: []ec2types.GroupIdentifier{
 					{
 						GroupId: awssdk.String("sg-b-1"),
 					},
@@ -626,12 +633,12 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 	}
 	type describeNetworkInterfacesAsListCall struct {
 		req  *ec2sdk.DescribeNetworkInterfacesInput
-		resp []*ec2sdk.NetworkInterface
+		resp []ec2types.NetworkInterface
 		err  error
 	}
 	type fetchNodeInstancesCall struct {
 		nodes                 []*corev1.Node
-		nodeInstanceByNodeKey map[types.NamespacedName]*ec2sdk.Instance
+		nodeInstanceByNodeKey map[types.NamespacedName]*ec2types.Instance
 		err                   error
 	}
 	type env struct {
@@ -661,12 +668,12 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							NetworkInterfaceIds: awssdk.StringSlice([]string{"eni-a", "eni-b"}),
+							NetworkInterfaceIds: []string{"eni-a", "eni-b"},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-a"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-a-1"),
 									},
@@ -674,7 +681,7 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 							},
 							{
 								NetworkInterfaceId: awssdk.String("eni-b"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-b-1"),
 									},
@@ -732,7 +739,7 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 				fetchNodeInstancesCalls: []fetchNodeInstancesCall{
 					{
 						nodes: []*corev1.Node{nodeA},
-						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2sdk.Instance{
+						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2types.Instance{
 							types.NamespacedName{Name: "node-a"}: instanceA,
 						},
 					},
@@ -765,6 +772,103 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 				},
 			},
 		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			ec2Client := services.NewMockEC2(ctrl)
+			for _, call := range tt.fields.describeNetworkInterfacesAsListCalls {
+				ec2Client.EXPECT().DescribeNetworkInterfacesAsList(gomock.Any(), call.req).Return(call.resp, call.err)
+			}
+			k8sSchema := runtime.NewScheme()
+			clientgoscheme.AddToScheme(k8sSchema)
+			k8sClient := fake.NewClientBuilder().WithScheme(k8sSchema).Build()
+			for _, node := range tt.env.nodes {
+				assert.NoError(t, k8sClient.Create(context.Background(), node.DeepCopy()))
+			}
+			nodeInfoProvider := NewMockNodeInfoProvider(ctrl)
+			for _, call := range tt.fields.fetchNodeInstancesCalls {
+				updatedNodes := make([]*corev1.Node, 0, len(call.nodes))
+				for _, node := range call.nodes {
+					updatedNode := &corev1.Node{}
+					assert.NoError(t, k8sClient.Get(context.Background(), k8s.NamespacedName(node), updatedNode))
+					updatedNodes = append(updatedNodes, updatedNode)
+				}
+				nodeInfoProvider.EXPECT().FetchNodeInstances(gomock.Any(), gomock.InAnyOrder(updatedNodes)).Return(call.nodeInstanceByNodeKey, call.err)
+			}
+			r := &defaultPodENIInfoResolver{
+				ec2Client:                            ec2Client,
+				k8sClient:                            k8sClient,
+				nodeInfoProvider:                     nodeInfoProvider,
+				vpcID:                                "vpc-0d6d9ee10bd062dcc",
+				logger:                               logr.New(&log.NullLogSink{}),
+				describeNetworkInterfacesIPChunkSize: 2,
+			}
+
+			got, err := r.resolveViaCascadedLookup(context.Background(), tt.args.pods, false)
+			if tt.wantErr != nil {
+				assert.EqualError(t, err, tt.wantErr.Error())
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup_Fargate(t *testing.T) {
+	nodeB := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-b",
+			Labels: map[string]string{
+				"eks.amazonaws.com/compute-type": "fargate",
+			},
+		},
+		Spec: corev1.NodeSpec{
+			ProviderID: "aws:///us-west-2b/xxxxxxxx/fargate-ip-192-168-128-147.us-west-2.compute.internal",
+		},
+	}
+	nodeC := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-c",
+			Labels: map[string]string{
+				"eks.amazonaws.com/compute-type": "fargate",
+			},
+		},
+		Spec: corev1.NodeSpec{
+			ProviderID: "aws:///us-west-2b/xxxxxxxx/fargate-ip-192-168-128-148.us-west-2.compute.internal",
+		},
+	}
+	type describeNetworkInterfacesAsListCall struct {
+		req  *ec2sdk.DescribeNetworkInterfacesInput
+		resp []ec2types.NetworkInterface
+		err  error
+	}
+	type fetchNodeInstancesCall struct {
+		nodes                 []*corev1.Node
+		nodeInstanceByNodeKey map[types.NamespacedName]*ec2types.Instance
+		err                   error
+	}
+	type env struct {
+		nodes []*corev1.Node
+	}
+	type fields struct {
+		describeNetworkInterfacesAsListCalls []describeNetworkInterfacesAsListCall
+		fetchNodeInstancesCalls              []fetchNodeInstancesCall
+	}
+	type args struct {
+		pods []k8s.PodInfo
+	}
+	tests := []struct {
+		name    string
+		env     env
+		fields  fields
+		args    args
+		want    map[types.NamespacedName]ENIInfo
+		wantErr error
+	}{
 		{
 			name: "all pod's ENI resolved via VPC's ENIs",
 			env: env{
@@ -774,21 +878,21 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
+							Filters: []ec2types.Filter{
 								{
 									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-0d6d9ee10bd062dcc"}),
+									Values: []string{"vpc-0d6d9ee10bd062dcc"},
 								},
 								{
 									Name:   awssdk.String("addresses.private-ip-address"),
-									Values: awssdk.StringSlice([]string{"192.168.128.147", "192.168.128.148"}),
+									Values: []string{"192.168.128.147", "192.168.128.148"},
 								},
 							},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-a"),
-								PrivateIpAddresses: []*ec2sdk.NetworkInterfacePrivateIpAddress{
+								PrivateIpAddresses: []ec2types.NetworkInterfacePrivateIpAddress{
 									{
 										PrivateIpAddress: awssdk.String("192.168.128.146"),
 									},
@@ -796,7 +900,7 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 										PrivateIpAddress: awssdk.String("192.168.128.147"),
 									},
 								},
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-a-1"),
 									},
@@ -804,7 +908,7 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 							},
 							{
 								NetworkInterfaceId: awssdk.String("eni-b"),
-								PrivateIpAddresses: []*ec2sdk.NetworkInterfacePrivateIpAddress{
+								PrivateIpAddresses: []ec2types.NetworkInterfacePrivateIpAddress{
 									{
 										PrivateIpAddress: awssdk.String("192.168.128.148"),
 									},
@@ -812,7 +916,7 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 										PrivateIpAddress: awssdk.String("192.168.128.149"),
 									},
 								},
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-b-1"),
 									},
@@ -849,116 +953,6 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "pod's ENI resolved via both ENI annotation and Node ENI and VPC ENI, and some pod's ENI not resolved",
-			env: env{
-				nodes: []*corev1.Node{nodeA, nodeB},
-			},
-			fields: fields{
-				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
-					{
-						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							NetworkInterfaceIds: awssdk.StringSlice([]string{"eni-a"}),
-						},
-						resp: []*ec2sdk.NetworkInterface{
-							{
-								NetworkInterfaceId: awssdk.String("eni-a"),
-								Groups: []*ec2sdk.GroupIdentifier{
-									{
-										GroupId: awssdk.String("sg-a-1"),
-									},
-								},
-							},
-						},
-					},
-					{
-						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
-								{
-									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-0d6d9ee10bd062dcc"}),
-								},
-								{
-									Name:   awssdk.String("addresses.private-ip-address"),
-									Values: awssdk.StringSlice([]string{"192.168.128.147", "192.168.5.3"}),
-								},
-							},
-						},
-						resp: []*ec2sdk.NetworkInterface{
-							{
-								NetworkInterfaceId: awssdk.String("eni-c"),
-								PrivateIpAddresses: []*ec2sdk.NetworkInterfacePrivateIpAddress{
-									{
-										PrivateIpAddress: awssdk.String("192.168.128.147"),
-									},
-								},
-								Groups: []*ec2sdk.GroupIdentifier{
-									{
-										GroupId: awssdk.String("sg-c-1"),
-									},
-								},
-							},
-						},
-					},
-				},
-				fetchNodeInstancesCalls: []fetchNodeInstancesCall{
-					{
-						nodes: []*corev1.Node{nodeA},
-						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2sdk.Instance{
-							types.NamespacedName{Name: "node-a"}: instanceA,
-						},
-					},
-				},
-			},
-			args: args{
-				pods: []k8s.PodInfo{
-					{
-						Key: types.NamespacedName{Namespace: "default", Name: "pod-1"},
-						UID: types.UID("2d8740a6-f4b1-4074-a91c-f0084ec0bc01"),
-						ENIInfos: []k8s.PodENIInfo{
-							{
-								ENIID:     "eni-a",
-								PrivateIP: "192.168.100.1",
-							},
-						},
-						NodeName: "node-a",
-						PodIP:    "192.168.100.1",
-					},
-					{
-						Key:      types.NamespacedName{Namespace: "default", Name: "pod-2"},
-						UID:      types.UID("2d8740a6-f4b1-4074-a91c-f0084ec0bc02"),
-						NodeName: "node-a",
-						PodIP:    "192.168.200.3",
-					},
-					{
-						Key:      types.NamespacedName{Namespace: "default", Name: "pod-3"},
-						UID:      types.UID("2d8740a6-f4b1-4074-a91c-f0084ec0bc03"),
-						NodeName: "node-a",
-						PodIP:    "192.168.5.3",
-					},
-					{
-						Key:      types.NamespacedName{Namespace: "default", Name: "pod-4"},
-						UID:      types.UID("2d8740a6-f4b1-4074-a91c-f0084ec0bc04"),
-						NodeName: "node-b",
-						PodIP:    "192.168.128.147",
-					},
-				},
-			},
-			want: map[types.NamespacedName]ENIInfo{
-				types.NamespacedName{Namespace: "default", Name: "pod-1"}: {
-					NetworkInterfaceID: "eni-a",
-					SecurityGroups:     []string{"sg-a-1"},
-				},
-				types.NamespacedName{Namespace: "default", Name: "pod-2"}: {
-					NetworkInterfaceID: "eni-b",
-					SecurityGroups:     []string{"sg-b-1"},
-				},
-				types.NamespacedName{Namespace: "default", Name: "pod-4"}: {
-					NetworkInterfaceID: "eni-c",
-					SecurityGroups:     []string{"sg-c-1"},
-				},
-			},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -990,11 +984,11 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 				k8sClient:                            k8sClient,
 				nodeInfoProvider:                     nodeInfoProvider,
 				vpcID:                                "vpc-0d6d9ee10bd062dcc",
-				logger:                               &log.NullLogger{},
+				logger:                               logr.New(&log.NullLogSink{}),
 				describeNetworkInterfacesIPChunkSize: 2,
 			}
 
-			got, err := r.resolveViaCascadedLookup(context.Background(), tt.args.pods)
+			got, err := r.resolveViaCascadedLookup(context.Background(), tt.args.pods, true)
 			if tt.wantErr != nil {
 				assert.EqualError(t, err, tt.wantErr.Error())
 			} else {
@@ -1008,7 +1002,7 @@ func Test_defaultPodENIInfoResolver_resolveViaCascadedLookup(t *testing.T) {
 func Test_defaultPodENIInfoResolver_resolveViaPodENIAnnotation(t *testing.T) {
 	type describeNetworkInterfacesAsListCall struct {
 		req  *ec2sdk.DescribeNetworkInterfacesInput
-		resp []*ec2sdk.NetworkInterface
+		resp []ec2types.NetworkInterface
 		err  error
 	}
 	type fields struct {
@@ -1030,12 +1024,12 @@ func Test_defaultPodENIInfoResolver_resolveViaPodENIAnnotation(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							NetworkInterfaceIds: awssdk.StringSlice([]string{"eni-a", "eni-b"}),
+							NetworkInterfaceIds: []string{"eni-a", "eni-b"},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-a"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-a-1"),
 									},
@@ -1043,7 +1037,7 @@ func Test_defaultPodENIInfoResolver_resolveViaPodENIAnnotation(t *testing.T) {
 							},
 							{
 								NetworkInterfaceId: awssdk.String("eni-b"),
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-b-1"),
 									},
@@ -1161,7 +1155,7 @@ func Test_defaultPodENIInfoResolver_resolveViaPodENIAnnotation(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							NetworkInterfaceIds: awssdk.StringSlice([]string{"eni-a"}),
+							NetworkInterfaceIds: []string{"eni-a"},
 						},
 						err: errors.New("eni eni-a not found"),
 					},
@@ -1197,7 +1191,7 @@ func Test_defaultPodENIInfoResolver_resolveViaPodENIAnnotation(t *testing.T) {
 			}
 			r := &defaultPodENIInfoResolver{
 				ec2Client: ec2Client,
-				logger:    &log.NullLogger{},
+				logger:    logr.New(&log.NullLogSink{}),
 			}
 			got, err := r.resolveViaPodENIAnnotation(context.Background(), tt.args.pods)
 			if tt.wantErr != nil {
@@ -1246,12 +1240,12 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 			ProviderID: "aws:///us-west-2b/xxxxxxxx/fargate-ip-192-168-128-147.us-west-2.compute.internal",
 		},
 	}
-	instanceA := &ec2sdk.Instance{
+	instanceA := &ec2types.Instance{
 		InstanceId: awssdk.String("i-0fa2d0064e848c69a"),
-		NetworkInterfaces: []*ec2sdk.InstanceNetworkInterface{
+		NetworkInterfaces: []ec2types.InstanceNetworkInterface{
 			{
 				NetworkInterfaceId: awssdk.String("eni-a-1"),
-				PrivateIpAddresses: []*ec2sdk.InstancePrivateIpAddress{
+				PrivateIpAddresses: []ec2types.InstancePrivateIpAddress{
 					{
 						PrivateIpAddress: awssdk.String("192.168.100.1"),
 					},
@@ -1259,10 +1253,10 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 						PrivateIpAddress: awssdk.String("192.168.100.2"),
 					},
 				},
-				Attachment: &ec2sdk.InstanceNetworkInterfaceAttachment{
-					DeviceIndex: awssdk.Int64(0),
+				Attachment: &ec2types.InstanceNetworkInterfaceAttachment{
+					DeviceIndex: awssdk.Int32(0),
 				},
-				Groups: []*ec2sdk.GroupIdentifier{
+				Groups: []ec2types.GroupIdentifier{
 					{
 						GroupId: awssdk.String("sg-a-1"),
 					},
@@ -1270,20 +1264,20 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 			},
 		},
 	}
-	instanceB := &ec2sdk.Instance{
+	instanceB := &ec2types.Instance{
 		InstanceId: awssdk.String("i-0fa2d0064e848c69b"),
-		NetworkInterfaces: []*ec2sdk.InstanceNetworkInterface{
+		NetworkInterfaces: []ec2types.InstanceNetworkInterface{
 			{
 				NetworkInterfaceId: awssdk.String("eni-b-1"),
-				Ipv4Prefixes: []*ec2sdk.InstanceIpv4Prefix{
+				Ipv4Prefixes: []ec2types.InstanceIpv4Prefix{
 					{
 						Ipv4Prefix: awssdk.String("192.168.142.128/28"),
 					},
 				},
-				Attachment: &ec2sdk.InstanceNetworkInterfaceAttachment{
-					DeviceIndex: awssdk.Int64(0),
+				Attachment: &ec2types.InstanceNetworkInterfaceAttachment{
+					DeviceIndex: awssdk.Int32(0),
 				},
-				Groups: []*ec2sdk.GroupIdentifier{
+				Groups: []ec2types.GroupIdentifier{
 					{
 						GroupId: awssdk.String("sg-b-1"),
 					},
@@ -1291,12 +1285,12 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 			},
 		},
 	}
-	instanceC := &ec2sdk.Instance{
+	instanceC := &ec2types.Instance{
 		InstanceId: awssdk.String("i-0fa2d0064e848c69c"),
-		NetworkInterfaces: []*ec2sdk.InstanceNetworkInterface{
+		NetworkInterfaces: []ec2types.InstanceNetworkInterface{
 			{
 				NetworkInterfaceId: awssdk.String("eni-c-1"),
-				PrivateIpAddresses: []*ec2sdk.InstancePrivateIpAddress{
+				PrivateIpAddresses: []ec2types.InstancePrivateIpAddress{
 					{
 						PrivateIpAddress: awssdk.String("192.168.100.3"),
 					},
@@ -1304,10 +1298,10 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 						PrivateIpAddress: awssdk.String("192.168.100.4"),
 					},
 				},
-				Attachment: &ec2sdk.InstanceNetworkInterfaceAttachment{
-					DeviceIndex: awssdk.Int64(0),
+				Attachment: &ec2types.InstanceNetworkInterfaceAttachment{
+					DeviceIndex: awssdk.Int32(0),
 				},
-				Groups: []*ec2sdk.GroupIdentifier{
+				Groups: []ec2types.GroupIdentifier{
 					{
 						GroupId: awssdk.String("sg-c-1"),
 					},
@@ -1315,15 +1309,15 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 			},
 			{
 				NetworkInterfaceId: awssdk.String("eni-c-2"),
-				Ipv4Prefixes: []*ec2sdk.InstanceIpv4Prefix{
+				Ipv4Prefixes: []ec2types.InstanceIpv4Prefix{
 					{
 						Ipv4Prefix: awssdk.String("192.168.172.128/28"),
 					},
 				},
-				Attachment: &ec2sdk.InstanceNetworkInterfaceAttachment{
-					DeviceIndex: awssdk.Int64(0),
+				Attachment: &ec2types.InstanceNetworkInterfaceAttachment{
+					DeviceIndex: awssdk.Int32(0),
 				},
-				Groups: []*ec2sdk.GroupIdentifier{
+				Groups: []ec2types.GroupIdentifier{
 					{
 						GroupId: awssdk.String("sg-c-2"),
 					},
@@ -1336,7 +1330,7 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 	}
 	type fetchNodeInstancesCall struct {
 		nodes                 []*corev1.Node
-		nodeInstanceByNodeKey map[types.NamespacedName]*ec2sdk.Instance
+		nodeInstanceByNodeKey map[types.NamespacedName]*ec2types.Instance
 		err                   error
 	}
 	type fields struct {
@@ -1362,7 +1356,7 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 				fetchNodeInstancesCalls: []fetchNodeInstancesCall{
 					{
 						nodes: []*corev1.Node{nodeA, nodeB, nodeC},
-						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2sdk.Instance{
+						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2types.Instance{
 							types.NamespacedName{Name: "node-a"}: instanceA,
 							types.NamespacedName{Name: "node-b"}: instanceB,
 							types.NamespacedName{Name: "node-c"}: instanceC,
@@ -1426,7 +1420,7 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 				fetchNodeInstancesCalls: []fetchNodeInstancesCall{
 					{
 						nodes: []*corev1.Node{nodeA, nodeB},
-						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2sdk.Instance{
+						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2types.Instance{
 							types.NamespacedName{Name: "node-a"}: instanceA,
 							types.NamespacedName{Name: "node-b"}: instanceB,
 						},
@@ -1475,7 +1469,7 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 				fetchNodeInstancesCalls: []fetchNodeInstancesCall{
 					{
 						nodes: []*corev1.Node{nodeA, nodeB, nodeC},
-						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2sdk.Instance{
+						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2types.Instance{
 							types.NamespacedName{Name: "node-a"}: instanceA,
 							types.NamespacedName{Name: "node-c"}: instanceC,
 						},
@@ -1534,7 +1528,7 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 				fetchNodeInstancesCalls: []fetchNodeInstancesCall{
 					{
 						nodes: []*corev1.Node{nodeA, nodeB, nodeC},
-						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2sdk.Instance{
+						nodeInstanceByNodeKey: map[types.NamespacedName]*ec2types.Instance{
 							types.NamespacedName{Name: "node-a"}: instanceA,
 							types.NamespacedName{Name: "node-b"}: instanceB,
 							types.NamespacedName{Name: "node-c"}: instanceC,
@@ -1687,7 +1681,7 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 			r := &defaultPodENIInfoResolver{
 				k8sClient:        k8sClient,
 				nodeInfoProvider: nodeInfoProvider,
-				logger:           &log.NullLogger{},
+				logger:           logr.New(&log.NullLogSink{}),
 			}
 			got, err := r.resolveViaNodeENIs(context.Background(), tt.args.pods)
 			if tt.wantErr != nil {
@@ -1703,7 +1697,7 @@ func Test_defaultPodENIInfoResolver_resolveViaNodeENIs(t *testing.T) {
 func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 	type describeNetworkInterfacesAsListCall struct {
 		req  *ec2sdk.DescribeNetworkInterfacesInput
-		resp []*ec2sdk.NetworkInterface
+		resp []ec2types.NetworkInterface
 		err  error
 	}
 	type fields struct {
@@ -1725,21 +1719,21 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
+							Filters: []ec2types.Filter{
 								{
 									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-0d6d9ee10bd062dcc"}),
+									Values: []string{"vpc-0d6d9ee10bd062dcc"},
 								},
 								{
 									Name:   awssdk.String("addresses.private-ip-address"),
-									Values: awssdk.StringSlice([]string{"192.168.100.1", "192.168.100.3"}),
+									Values: []string{"192.168.100.1", "192.168.100.3"},
 								},
 							},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-a"),
-								PrivateIpAddresses: []*ec2sdk.NetworkInterfacePrivateIpAddress{
+								PrivateIpAddresses: []ec2types.NetworkInterfacePrivateIpAddress{
 									{
 										PrivateIpAddress: awssdk.String("192.168.100.1"),
 									},
@@ -1747,7 +1741,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 										PrivateIpAddress: awssdk.String("192.168.100.2"),
 									},
 								},
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-a-1"),
 									},
@@ -1755,7 +1749,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 							},
 							{
 								NetworkInterfaceId: awssdk.String("eni-b"),
-								PrivateIpAddresses: []*ec2sdk.NetworkInterfacePrivateIpAddress{
+								PrivateIpAddresses: []ec2types.NetworkInterfacePrivateIpAddress{
 									{
 										PrivateIpAddress: awssdk.String("192.168.100.3"),
 									},
@@ -1763,7 +1757,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 										PrivateIpAddress: awssdk.String("192.168.100.4"),
 									},
 								},
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-b-1"),
 									},
@@ -1806,21 +1800,21 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
+							Filters: []ec2types.Filter{
 								{
 									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-0d6d9ee10bd062dcc"}),
+									Values: []string{"vpc-0d6d9ee10bd062dcc"},
 								},
 								{
 									Name:   awssdk.String("addresses.private-ip-address"),
-									Values: awssdk.StringSlice([]string{"192.168.100.1", "192.168.100.2"}),
+									Values: []string{"192.168.100.1", "192.168.100.2"},
 								},
 							},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-a"),
-								PrivateIpAddresses: []*ec2sdk.NetworkInterfacePrivateIpAddress{
+								PrivateIpAddresses: []ec2types.NetworkInterfacePrivateIpAddress{
 									{
 										PrivateIpAddress: awssdk.String("192.168.100.1"),
 									},
@@ -1828,7 +1822,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 										PrivateIpAddress: awssdk.String("192.168.100.2"),
 									},
 								},
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-a-1"),
 									},
@@ -1838,22 +1832,22 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 					},
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
+							Filters: []ec2types.Filter{
 								{
 									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-0d6d9ee10bd062dcc"}),
+									Values: []string{"vpc-0d6d9ee10bd062dcc"},
 								},
 								{
 									Name:   awssdk.String("addresses.private-ip-address"),
-									Values: awssdk.StringSlice([]string{"192.168.100.3", "192.168.100.4"}),
+									Values: []string{"192.168.100.3", "192.168.100.4"},
 								},
 							},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 
 							{
 								NetworkInterfaceId: awssdk.String("eni-b"),
-								PrivateIpAddresses: []*ec2sdk.NetworkInterfacePrivateIpAddress{
+								PrivateIpAddresses: []ec2types.NetworkInterfacePrivateIpAddress{
 									{
 										PrivateIpAddress: awssdk.String("192.168.100.3"),
 									},
@@ -1861,7 +1855,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 										PrivateIpAddress: awssdk.String("192.168.100.4"),
 									},
 								},
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-b-1"),
 									},
@@ -1924,21 +1918,21 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
+							Filters: []ec2types.Filter{
 								{
 									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-0d6d9ee10bd062dcc"}),
+									Values: []string{"vpc-0d6d9ee10bd062dcc"},
 								},
 								{
 									Name:   awssdk.String("addresses.private-ip-address"),
-									Values: awssdk.StringSlice([]string{"192.168.100.1", "192.168.100.3"}),
+									Values: []string{"192.168.100.1", "192.168.100.3"},
 								},
 							},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-a"),
-								PrivateIpAddresses: []*ec2sdk.NetworkInterfacePrivateIpAddress{
+								PrivateIpAddresses: []ec2types.NetworkInterfacePrivateIpAddress{
 									{
 										PrivateIpAddress: awssdk.String("192.168.100.1"),
 									},
@@ -1946,7 +1940,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 										PrivateIpAddress: awssdk.String("192.168.100.2"),
 									},
 								},
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-a-1"),
 									},
@@ -1985,14 +1979,14 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
+							Filters: []ec2types.Filter{
 								{
 									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-0d6d9ee10bd062dcc"}),
+									Values: []string{"vpc-0d6d9ee10bd062dcc"},
 								},
 								{
 									Name:   awssdk.String("addresses.private-ip-address"),
-									Values: awssdk.StringSlice([]string{"192.168.100.1", "192.168.100.3"}),
+									Values: []string{"192.168.100.1", "192.168.100.3"},
 								},
 							},
 						},
@@ -2031,7 +2025,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 			r := &defaultPodENIInfoResolver{
 				ec2Client:                            ec2Client,
 				vpcID:                                "vpc-0d6d9ee10bd062dcc",
-				logger:                               &log.NullLogger{},
+				logger:                               logr.New(&log.NullLogSink{}),
 				describeNetworkInterfacesIPChunkSize: 2,
 			}
 			got, err := r.resolveViaVPCENIs(context.Background(), tt.args.pods)
@@ -2048,7 +2042,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIs(t *testing.T) {
 func Test_defaultPodENIInfoResolver_resolveViaVPCENIsForIPv6(t *testing.T) {
 	type describeNetworkInterfacesAsListCall struct {
 		req  *ec2sdk.DescribeNetworkInterfacesInput
-		resp []*ec2sdk.NetworkInterface
+		resp []ec2types.NetworkInterface
 		err  error
 	}
 	type fields struct {
@@ -2070,21 +2064,21 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIsForIPv6(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
+							Filters: []ec2types.Filter{
 								{
 									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-0d6d9ee10bd062dcc"}),
+									Values: []string{"vpc-0d6d9ee10bd062dcc"},
 								},
 								{
 									Name:   awssdk.String("ipv6-addresses.ipv6-address"),
-									Values: awssdk.StringSlice([]string{"2001:0db8:85a3:0000:0000:8a2e:0370:ee50", "2001:0db8:85a3:0000:0000:9704:6c49:9e7d"}),
+									Values: []string{"2001:0db8:85a3:0000:0000:8a2e:0370:ee50", "2001:0db8:85a3:0000:0000:9704:6c49:9e7d"},
 								},
 							},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-a"),
-								Ipv6Addresses: []*ec2sdk.NetworkInterfaceIpv6Address{
+								Ipv6Addresses: []ec2types.NetworkInterfaceIpv6Address{
 									{
 										Ipv6Address: awssdk.String("2001:0db8:85a3:0000:0000:8a2e:0370:ee50"),
 									},
@@ -2092,7 +2086,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIsForIPv6(t *testing.T) {
 										Ipv6Address: awssdk.String("2001:0db8:85a3:0000:0000:8a2e:0370:ee52"),
 									},
 								},
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-a-1"),
 									},
@@ -2100,7 +2094,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIsForIPv6(t *testing.T) {
 							},
 							{
 								NetworkInterfaceId: awssdk.String("eni-b"),
-								Ipv6Addresses: []*ec2sdk.NetworkInterfaceIpv6Address{
+								Ipv6Addresses: []ec2types.NetworkInterfaceIpv6Address{
 									{
 										Ipv6Address: awssdk.String("2001:0db8:85a3:0000:0000:9704:6c49:9e70"),
 									},
@@ -2108,7 +2102,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIsForIPv6(t *testing.T) {
 										Ipv6Address: awssdk.String("2001:0db8:85a3:0000:0000:9704:6c49:9e7d"),
 									},
 								},
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-b-1"),
 									},
@@ -2151,21 +2145,21 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIsForIPv6(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
+							Filters: []ec2types.Filter{
 								{
 									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-0d6d9ee10bd062dcc"}),
+									Values: []string{"vpc-0d6d9ee10bd062dcc"},
 								},
 								{
 									Name:   awssdk.String("ipv6-addresses.ipv6-address"),
-									Values: awssdk.StringSlice([]string{"2001:0db8:85a3:0000:0000:8a2e:0370:ee50", "2001:0db8:85a3:0000:0000:9704:6c49:9e7d"}),
+									Values: []string{"2001:0db8:85a3:0000:0000:8a2e:0370:ee50", "2001:0db8:85a3:0000:0000:9704:6c49:9e7d"},
 								},
 							},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-a"),
-								Ipv6Addresses: []*ec2sdk.NetworkInterfaceIpv6Address{
+								Ipv6Addresses: []ec2types.NetworkInterfaceIpv6Address{
 									{
 										Ipv6Address: awssdk.String("2001:0db8:85a3:0000:0000:8a2e:0370:ee50"),
 									},
@@ -2173,7 +2167,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIsForIPv6(t *testing.T) {
 										Ipv6Address: awssdk.String("2001:0db8:85a3:0000:0000:9704:6c49:9e7d"),
 									},
 								},
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-a-1"),
 									},
@@ -2183,21 +2177,21 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIsForIPv6(t *testing.T) {
 					},
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
+							Filters: []ec2types.Filter{
 								{
 									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-0d6d9ee10bd062dcc"}),
+									Values: []string{"vpc-0d6d9ee10bd062dcc"},
 								},
 								{
 									Name:   awssdk.String("ipv6-addresses.ipv6-address"),
-									Values: awssdk.StringSlice([]string{"2001:0db8:85a3:0000:0000:8493:9af3:a786", "2001:0db8:85a3:0000:0000:3f04:39e7:58d9"}),
+									Values: []string{"2001:0db8:85a3:0000:0000:8493:9af3:a786", "2001:0db8:85a3:0000:0000:3f04:39e7:58d9"},
 								},
 							},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-b"),
-								Ipv6Addresses: []*ec2sdk.NetworkInterfaceIpv6Address{
+								Ipv6Addresses: []ec2types.NetworkInterfaceIpv6Address{
 									{
 										Ipv6Address: awssdk.String("2001:0db8:85a3:0000:0000:8493:9af3:a786"),
 									},
@@ -2205,7 +2199,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIsForIPv6(t *testing.T) {
 										Ipv6Address: awssdk.String("2001:0db8:85a3:0000:0000:3f04:39e7:58d9"),
 									},
 								},
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-b-1"),
 									},
@@ -2268,26 +2262,26 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIsForIPv6(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
+							Filters: []ec2types.Filter{
 								{
 									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-0d6d9ee10bd062dcc"}),
+									Values: []string{"vpc-0d6d9ee10bd062dcc"},
 								},
 								{
 									Name:   awssdk.String("ipv6-addresses.ipv6-address"),
-									Values: awssdk.StringSlice([]string{"2001:0db8:85a3:0000:0000:8493:9af3:a786", "2001:0db8:85a3:0000:0000:3f04:39e7:58d9"}),
+									Values: []string{"2001:0db8:85a3:0000:0000:8493:9af3:a786", "2001:0db8:85a3:0000:0000:3f04:39e7:58d9"},
 								},
 							},
 						},
-						resp: []*ec2sdk.NetworkInterface{
+						resp: []ec2types.NetworkInterface{
 							{
 								NetworkInterfaceId: awssdk.String("eni-a"),
-								Ipv6Addresses: []*ec2sdk.NetworkInterfaceIpv6Address{
+								Ipv6Addresses: []ec2types.NetworkInterfaceIpv6Address{
 									{
 										Ipv6Address: awssdk.String("2001:0db8:85a3:0000:0000:8493:9af3:a786"),
 									},
 								},
-								Groups: []*ec2sdk.GroupIdentifier{
+								Groups: []ec2types.GroupIdentifier{
 									{
 										GroupId: awssdk.String("sg-a-1"),
 									},
@@ -2326,14 +2320,14 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIsForIPv6(t *testing.T) {
 				describeNetworkInterfacesAsListCalls: []describeNetworkInterfacesAsListCall{
 					{
 						req: &ec2sdk.DescribeNetworkInterfacesInput{
-							Filters: []*ec2sdk.Filter{
+							Filters: []ec2types.Filter{
 								{
 									Name:   awssdk.String("vpc-id"),
-									Values: awssdk.StringSlice([]string{"vpc-0d6d9ee10bd062dcc"}),
+									Values: []string{"vpc-0d6d9ee10bd062dcc"},
 								},
 								{
 									Name:   awssdk.String("ipv6-addresses.ipv6-address"),
-									Values: awssdk.StringSlice([]string{"2001:0db8:85a3:0000:0000:8493:9af3:a786", "2001:0db8:85a3:0000:0000:3f04:39e7:58d9"}),
+									Values: []string{"2001:0db8:85a3:0000:0000:8493:9af3:a786", "2001:0db8:85a3:0000:0000:3f04:39e7:58d9"},
 								},
 							},
 						},
@@ -2372,7 +2366,7 @@ func Test_defaultPodENIInfoResolver_resolveViaVPCENIsForIPv6(t *testing.T) {
 			r := &defaultPodENIInfoResolver{
 				ec2Client:                            ec2Client,
 				vpcID:                                "vpc-0d6d9ee10bd062dcc",
-				logger:                               &log.NullLogger{},
+				logger:                               logr.New(&log.NullLogSink{}),
 				describeNetworkInterfacesIPChunkSize: 2,
 			}
 			got, err := r.resolveViaVPCENIs(context.Background(), tt.args.pods)
@@ -2527,7 +2521,7 @@ func Test_computePodsWithoutENIInfo(t *testing.T) {
 func Test_defaultPodENIInfoResolver_isPodSupportedByNodeENI(t *testing.T) {
 	type args struct {
 		pod     k8s.PodInfo
-		nodeENI *ec2sdk.InstanceNetworkInterface
+		nodeENI ec2types.InstanceNetworkInterface
 	}
 	tests := []struct {
 		name string
@@ -2540,8 +2534,8 @@ func Test_defaultPodENIInfoResolver_isPodSupportedByNodeENI(t *testing.T) {
 				pod: k8s.PodInfo{
 					PodIP: "192.168.100.23",
 				},
-				nodeENI: &ec2sdk.InstanceNetworkInterface{
-					PrivateIpAddresses: []*ec2sdk.InstancePrivateIpAddress{
+				nodeENI: ec2types.InstanceNetworkInterface{
+					PrivateIpAddresses: []ec2types.InstancePrivateIpAddress{
 						{
 							PrivateIpAddress: awssdk.String("192.168.100.22"),
 						},
@@ -2559,8 +2553,8 @@ func Test_defaultPodENIInfoResolver_isPodSupportedByNodeENI(t *testing.T) {
 				pod: k8s.PodInfo{
 					PodIP: "192.168.100.21",
 				},
-				nodeENI: &ec2sdk.InstanceNetworkInterface{
-					PrivateIpAddresses: []*ec2sdk.InstancePrivateIpAddress{
+				nodeENI: ec2types.InstanceNetworkInterface{
+					PrivateIpAddresses: []ec2types.InstancePrivateIpAddress{
 						{
 							PrivateIpAddress: awssdk.String("192.168.100.22"),
 						},
@@ -2578,8 +2572,8 @@ func Test_defaultPodENIInfoResolver_isPodSupportedByNodeENI(t *testing.T) {
 				pod: k8s.PodInfo{
 					PodIP: "192.168.172.140",
 				},
-				nodeENI: &ec2sdk.InstanceNetworkInterface{
-					Ipv4Prefixes: []*ec2sdk.InstanceIpv4Prefix{
+				nodeENI: ec2types.InstanceNetworkInterface{
+					Ipv4Prefixes: []ec2types.InstanceIpv4Prefix{
 						{
 							Ipv4Prefix: awssdk.String("192.168.197.64/28"),
 						},
@@ -2597,8 +2591,8 @@ func Test_defaultPodENIInfoResolver_isPodSupportedByNodeENI(t *testing.T) {
 				pod: k8s.PodInfo{
 					PodIP: "192.168.100.23",
 				},
-				nodeENI: &ec2sdk.InstanceNetworkInterface{
-					Ipv4Prefixes: []*ec2sdk.InstanceIpv4Prefix{
+				nodeENI: ec2types.InstanceNetworkInterface{
+					Ipv4Prefixes: []ec2types.InstanceIpv4Prefix{
 						{
 							Ipv4Prefix: awssdk.String("192.168.197.64/28"),
 						},
@@ -2616,8 +2610,8 @@ func Test_defaultPodENIInfoResolver_isPodSupportedByNodeENI(t *testing.T) {
 				pod: k8s.PodInfo{
 					PodIP: "abcdefg",
 				},
-				nodeENI: &ec2sdk.InstanceNetworkInterface{
-					Ipv4Prefixes: []*ec2sdk.InstanceIpv4Prefix{
+				nodeENI: ec2types.InstanceNetworkInterface{
+					Ipv4Prefixes: []ec2types.InstanceIpv4Prefix{
 						{
 							Ipv4Prefix: awssdk.String("192.168.197.64/28"),
 						},

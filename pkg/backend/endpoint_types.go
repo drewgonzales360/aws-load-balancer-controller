@@ -2,7 +2,7 @@ package backend
 
 import (
 	corev1 "k8s.io/api/core/v1"
-	discv1 "k8s.io/api/discovery/v1beta1"
+	discv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/aws-load-balancer-controller/pkg/k8s"
 )
@@ -12,7 +12,7 @@ type PodEndpoint struct {
 	// Pod's IP.
 	IP string
 	// Pod's container port.
-	Port int64
+	Port int32
 	// Pod that provides this endpoint.
 	Pod k8s.PodInfo
 }
@@ -22,7 +22,7 @@ type NodePortEndpoint struct {
 	// Node's instanceID.
 	InstanceID string
 	// Node's NodePort.
-	Port int64
+	Port int32
 	// Node that provides this endpoint.
 	Node *corev1.Node
 }

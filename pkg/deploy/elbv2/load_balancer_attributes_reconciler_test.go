@@ -2,8 +2,12 @@ package elbv2
 
 import (
 	"context"
-	awssdk "github.com/aws/aws-sdk-go/aws"
-	elbv2sdk "github.com/aws/aws-sdk-go/service/elbv2"
+	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"testing"
+
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	elbv2sdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	"github.com/go-logr/logr"
 	"github.com/golang/mock/gomock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -11,7 +15,6 @@ import (
 	coremodel "sigs.k8s.io/aws-load-balancer-controller/pkg/model/core"
 	elbv2model "sigs.k8s.io/aws-load-balancer-controller/pkg/model/elbv2"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"testing"
 )
 
 func Test_defaultLoadBalancerAttributeReconciler_updateSDKLoadBalancerWithAttributes(t *testing.T) {
@@ -52,7 +55,7 @@ func Test_defaultLoadBalancerAttributeReconciler_updateSDKLoadBalancerWithAttrib
 							LoadBalancerArn: awssdk.String("my-arn"),
 						},
 						resp: &elbv2sdk.DescribeLoadBalancerAttributesOutput{
-							Attributes: []*elbv2sdk.LoadBalancerAttribute{
+							Attributes: []elbv2types.LoadBalancerAttribute{
 								{
 									Key:   awssdk.String("idle_timeout.timeout_seconds"),
 									Value: awssdk.String("50"),
@@ -69,7 +72,7 @@ func Test_defaultLoadBalancerAttributeReconciler_updateSDKLoadBalancerWithAttrib
 					{
 						req: &elbv2sdk.ModifyLoadBalancerAttributesInput{
 							LoadBalancerArn: awssdk.String("my-arn"),
-							Attributes: []*elbv2sdk.LoadBalancerAttribute{
+							Attributes: []elbv2types.LoadBalancerAttribute{
 								{
 									Key:   awssdk.String("idle_timeout.timeout_seconds"),
 									Value: awssdk.String("100"),
@@ -85,7 +88,7 @@ func Test_defaultLoadBalancerAttributeReconciler_updateSDKLoadBalancerWithAttrib
 			},
 			args: args{
 				sdkLB: LoadBalancerWithTags{
-					LoadBalancer: &elbv2sdk.LoadBalancer{
+					LoadBalancer: &elbv2types.LoadBalancer{
 						LoadBalancerArn: awssdk.String("my-arn"),
 					},
 				},
@@ -115,7 +118,7 @@ func Test_defaultLoadBalancerAttributeReconciler_updateSDKLoadBalancerWithAttrib
 							LoadBalancerArn: awssdk.String("my-arn"),
 						},
 						resp: &elbv2sdk.DescribeLoadBalancerAttributesOutput{
-							Attributes: []*elbv2sdk.LoadBalancerAttribute{
+							Attributes: []elbv2types.LoadBalancerAttribute{
 								{
 									Key:   awssdk.String("idle_timeout.timeout_seconds"),
 									Value: awssdk.String("50"),
@@ -132,7 +135,7 @@ func Test_defaultLoadBalancerAttributeReconciler_updateSDKLoadBalancerWithAttrib
 			},
 			args: args{
 				sdkLB: LoadBalancerWithTags{
-					LoadBalancer: &elbv2sdk.LoadBalancer{
+					LoadBalancer: &elbv2types.LoadBalancer{
 						LoadBalancerArn: awssdk.String("my-arn"),
 					},
 				},
@@ -163,7 +166,7 @@ func Test_defaultLoadBalancerAttributeReconciler_updateSDKLoadBalancerWithAttrib
 			}
 			r := &defaultLoadBalancerAttributeReconciler{
 				elbv2Client: elbv2Client,
-				logger:      &log.NullLogger{},
+				logger:      logr.New(&log.NullLogSink{}),
 			}
 			err := r.Reconcile(context.Background(), tt.args.resLB, tt.args.sdkLB)
 			if tt.wantErr != nil {
@@ -256,7 +259,7 @@ func Test_defaultLoadBalancerAttributeReconciler_getCurrentLoadBalancerAttribute
 							LoadBalancerArn: awssdk.String("my-arn"),
 						},
 						resp: &elbv2sdk.DescribeLoadBalancerAttributesOutput{
-							Attributes: []*elbv2sdk.LoadBalancerAttribute{
+							Attributes: []elbv2types.LoadBalancerAttribute{
 								{
 									Key:   awssdk.String("keyA"),
 									Value: awssdk.String("valueA"),
@@ -272,7 +275,7 @@ func Test_defaultLoadBalancerAttributeReconciler_getCurrentLoadBalancerAttribute
 			},
 			args: args{
 				sdkLB: LoadBalancerWithTags{
-					LoadBalancer: &elbv2sdk.LoadBalancer{
+					LoadBalancer: &elbv2types.LoadBalancer{
 						LoadBalancerArn: awssdk.String("my-arn"),
 					},
 					Tags: nil,
@@ -297,7 +300,7 @@ func Test_defaultLoadBalancerAttributeReconciler_getCurrentLoadBalancerAttribute
 			},
 			args: args{
 				sdkLB: LoadBalancerWithTags{
-					LoadBalancer: &elbv2sdk.LoadBalancer{
+					LoadBalancer: &elbv2types.LoadBalancer{
 						LoadBalancerArn: awssdk.String("my-arn"),
 					},
 					Tags: nil,

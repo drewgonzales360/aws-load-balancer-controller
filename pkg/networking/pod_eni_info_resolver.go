@@ -2,8 +2,9 @@ package networking
 
 import (
 	"context"
-	awssdk "github.com/aws/aws-sdk-go/aws"
-	ec2sdk "github.com/aws/aws-sdk-go/service/ec2"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -81,7 +82,7 @@ func (r *defaultPodENIInfoResolver) Resolve(ctx context.Context, pods []k8s.PodI
 	eniInfoByPodKey := r.fetchENIInfosFromCache(pods)
 	podsWithoutENIInfo := computePodsWithoutENIInfo(pods, eniInfoByPodKey)
 	if len(podsWithoutENIInfo) > 0 {
-		eniInfoByPodKeyViaLookup, err := r.resolveViaCascadedLookup(ctx, podsWithoutENIInfo)
+		eniInfoByPodKeyViaLookup, err := r.resolvePodsViaCascadedLookup(ctx, podsWithoutENIInfo)
 		if err != nil {
 			return nil, err
 		}
@@ -139,20 +140,49 @@ func (r *defaultPodENIInfoResolver) saveENIInfosToCache(pods []k8s.PodInfo, eniI
 	}
 }
 
-func (r *defaultPodENIInfoResolver) resolveViaCascadedLookup(ctx context.Context, pods []k8s.PodInfo) (map[types.NamespacedName]ENIInfo, error) {
+func (r *defaultPodENIInfoResolver) resolvePodsViaCascadedLookup(ctx context.Context, pods []k8s.PodInfo) (map[types.NamespacedName]ENIInfo, error) {
+	podsOnEc2, podsOnFargate, err := r.classifyPodsByComputeType(ctx, pods)
+	if err != nil {
+		return nil, err
+	}
+	eniInfoByPodKey := make(map[types.NamespacedName]ENIInfo)
+	if len(podsOnEc2) > 0 {
+		eniInfoByPodKeyEc2, err := r.resolveViaCascadedLookup(ctx, podsOnEc2, false)
+		if err != nil {
+			return nil, err
+		}
+		eniInfoByPodKey = eniInfoByPodKeyEc2
+	}
+	if len(podsOnFargate) > 0 {
+		eniInfoByPodKeyFargate, err := r.resolveViaCascadedLookup(ctx, podsOnFargate, true)
+		if err != nil {
+			return nil, err
+		}
+		if len(eniInfoByPodKeyFargate) > 0 {
+			for podKey, eniInfo := range eniInfoByPodKeyFargate {
+				eniInfoByPodKey[podKey] = eniInfo
+			}
+		}
+	}
+	return eniInfoByPodKey, nil
+}
+
+func (r *defaultPodENIInfoResolver) resolveViaCascadedLookup(ctx context.Context, pods []k8s.PodInfo, isFargateNode bool) (map[types.NamespacedName]ENIInfo, error) {
+	eniInfoByPodKey := make(map[types.NamespacedName]ENIInfo)
 	resolveFuncs := []func(ctx context.Context, pods []k8s.PodInfo) (map[types.NamespacedName]ENIInfo, error){
 		r.resolveViaPodENIAnnotation,
 		r.resolveViaNodeENIs,
-		r.resolveViaVPCENIs,
 		// TODO, add support for kubenet CNI plugin(kops) by resolve via routeTable.
 	}
-
-	eniInfoByPodKey := make(map[types.NamespacedName]ENIInfo)
+	if isFargateNode {
+		resolveFuncs = []func(ctx context.Context, pods []k8s.PodInfo) (map[types.NamespacedName]ENIInfo, error){
+			r.resolveViaVPCENIs,
+		}
+	}
 	for _, resolveFunc := range resolveFuncs {
 		if len(pods) == 0 {
 			break
 		}
-
 		resolvedENIInfoByPodKey, err := resolveFunc(ctx, pods)
 		if err != nil {
 			return nil, err
@@ -189,7 +219,7 @@ func (r *defaultPodENIInfoResolver) resolveViaPodENIAnnotation(ctx context.Conte
 
 	eniIDs := sets.StringKeySet(podKeysByENIID).List()
 	req := &ec2sdk.DescribeNetworkInterfacesInput{
-		NetworkInterfaceIds: awssdk.StringSlice(eniIDs),
+		NetworkInterfaceIds: eniIDs,
 	}
 	enis, err := r.ec2Client.DescribeNetworkInterfacesAsList(ctx, req)
 	if err != nil {
@@ -197,7 +227,7 @@ func (r *defaultPodENIInfoResolver) resolveViaPodENIAnnotation(ctx context.Conte
 	}
 	eniInfoByPodKey := make(map[types.NamespacedName]ENIInfo)
 	for _, eni := range enis {
-		eniID := awssdk.StringValue(eni.NetworkInterfaceId)
+		eniID := awssdk.ToString(eni.NetworkInterfaceId)
 		eniInfo := buildENIInfoViaENI(eni)
 		for _, podKey := range podKeysByENIID[eniID] {
 			eniInfoByPodKey[podKey] = eniInfo
@@ -278,7 +308,7 @@ func (r *defaultPodENIInfoResolver) resolveViaVPCENIs(ctx context.Context, pods 
 		for _, eni := range eniByID {
 			eniInfo := buildENIInfoViaENI(eni)
 			for _, addr := range eni.PrivateIpAddresses {
-				eniIP := awssdk.StringValue(addr.PrivateIpAddress)
+				eniIP := awssdk.ToString(addr.PrivateIpAddress)
 				for _, podKey := range podKeysByIP[eniIP] {
 					eniInfoByPodKey[podKey] = eniInfo
 				}
@@ -294,7 +324,7 @@ func (r *defaultPodENIInfoResolver) resolveViaVPCENIs(ctx context.Context, pods 
 		for _, eni := range eniByID {
 			eniInfo := buildENIInfoViaENI(eni)
 			for _, addr := range eni.Ipv6Addresses {
-				eniIPv6 := awssdk.StringValue(addr.Ipv6Address)
+				eniIPv6 := awssdk.ToString(addr.Ipv6Address)
 				for _, podKey := range podKeysByIP[eniIPv6] {
 					eniInfoByPodKey[podKey] = eniInfo
 				}
@@ -304,19 +334,19 @@ func (r *defaultPodENIInfoResolver) resolveViaVPCENIs(ctx context.Context, pods 
 	return eniInfoByPodKey, nil
 }
 
-func (r *defaultPodENIInfoResolver) getENIMappingViaDescribe(ctx context.Context, podIPs []string, ipAddressFilterKey string) (map[string]*ec2sdk.NetworkInterface, error) {
+func (r *defaultPodENIInfoResolver) getENIMappingViaDescribe(ctx context.Context, podIPs []string, ipAddressFilterKey string) (map[string]ec2types.NetworkInterface, error) {
 	podIPChunks := algorithm.ChunkStrings(podIPs, r.describeNetworkInterfacesIPChunkSize)
-	eniByID := make(map[string]*ec2sdk.NetworkInterface)
+	eniByID := make(map[string]ec2types.NetworkInterface)
 	for _, podIPChunk := range podIPChunks {
 		req := &ec2sdk.DescribeNetworkInterfacesInput{
-			Filters: []*ec2sdk.Filter{
+			Filters: []ec2types.Filter{
 				{
 					Name:   awssdk.String("vpc-id"),
-					Values: awssdk.StringSlice([]string{r.vpcID}),
+					Values: []string{r.vpcID},
 				},
 				{
 					Name:   awssdk.String(ipAddressFilterKey),
-					Values: awssdk.StringSlice(podIPChunk),
+					Values: podIPChunk,
 				},
 			},
 		}
@@ -325,7 +355,7 @@ func (r *defaultPodENIInfoResolver) getENIMappingViaDescribe(ctx context.Context
 			return nil, err
 		}
 		for _, eni := range enis {
-			eniID := awssdk.StringValue(eni.NetworkInterfaceId)
+			eniID := awssdk.ToString(eni.NetworkInterfaceId)
 			eniByID[eniID] = eni
 		}
 	}
@@ -333,9 +363,9 @@ func (r *defaultPodENIInfoResolver) getENIMappingViaDescribe(ctx context.Context
 }
 
 // isPodSupportedByNodeENI checks whether pod is supported by specific nodeENI.
-func (r *defaultPodENIInfoResolver) isPodSupportedByNodeENI(pod k8s.PodInfo, nodeENI *ec2sdk.InstanceNetworkInterface) bool {
+func (r *defaultPodENIInfoResolver) isPodSupportedByNodeENI(pod k8s.PodInfo, nodeENI ec2types.InstanceNetworkInterface) bool {
 	for _, ipv4Address := range nodeENI.PrivateIpAddresses {
-		if pod.PodIP == awssdk.StringValue(ipv4Address.PrivateIpAddress) {
+		if pod.PodIP == awssdk.ToString(ipv4Address.PrivateIpAddress) {
 			return true
 		}
 	}
@@ -343,12 +373,12 @@ func (r *defaultPodENIInfoResolver) isPodSupportedByNodeENI(pod k8s.PodInfo, nod
 	if len(nodeENI.Ipv4Prefixes) > 0 || len(nodeENI.Ipv6Prefixes) > 0 {
 		if podIP := net.ParseIP(pod.PodIP); podIP != nil {
 			for _, ipv4Prefix := range nodeENI.Ipv4Prefixes {
-				if _, ipv4CIDR, err := net.ParseCIDR(awssdk.StringValue(ipv4Prefix.Ipv4Prefix)); err == nil && ipv4CIDR.Contains(podIP) {
+				if _, ipv4CIDR, err := net.ParseCIDR(awssdk.ToString(ipv4Prefix.Ipv4Prefix)); err == nil && ipv4CIDR.Contains(podIP) {
 					return true
 				}
 			}
 			for _, ipv6Prefix := range nodeENI.Ipv6Prefixes {
-				if _, ipv6CIDR, err := net.ParseCIDR(awssdk.StringValue(ipv6Prefix.Ipv6Prefix)); err == nil && ipv6CIDR.Contains(podIP) {
+				if _, ipv6CIDR, err := net.ParseCIDR(awssdk.ToString(ipv6Prefix.Ipv6Prefix)); err == nil && ipv6CIDR.Contains(podIP) {
 					return true
 				}
 			}
@@ -356,6 +386,35 @@ func (r *defaultPodENIInfoResolver) isPodSupportedByNodeENI(pod k8s.PodInfo, nod
 	}
 
 	return false
+}
+
+// classifyPodsByComputeType classifies in to ec2 and fargate groups
+func (r *defaultPodENIInfoResolver) classifyPodsByComputeType(ctx context.Context, pods []k8s.PodInfo) ([]k8s.PodInfo, []k8s.PodInfo, error) {
+	podsOnFargate := make([]k8s.PodInfo, 0, len(pods))
+	podsOnEc2 := make([]k8s.PodInfo, 0, len(pods))
+	nodeNameByComputeType := make(map[string]string)
+	for _, pod := range pods {
+		if _, exists := nodeNameByComputeType[pod.NodeName]; exists {
+			if nodeNameByComputeType[pod.NodeName] == "fargate" {
+				podsOnFargate = append(podsOnFargate, pod)
+			} else {
+				podsOnEc2 = append(podsOnEc2, pod)
+			}
+		}
+		nodeKey := types.NamespacedName{Name: pod.NodeName}
+		node := &corev1.Node{}
+		if err := r.k8sClient.Get(ctx, nodeKey, node); err != nil {
+			return nil, nil, err
+		}
+		if node.Labels[labelEKSComputeType] == "fargate" {
+			podsOnFargate = append(podsOnFargate, pod)
+			nodeNameByComputeType[pod.NodeName] = "fargate"
+		} else {
+			podsOnEc2 = append(podsOnEc2, pod)
+			nodeNameByComputeType[pod.NodeName] = "ec2"
+		}
+	}
+	return podsOnEc2, podsOnFargate, nil
 }
 
 // computePodENIInfoCacheKey computes the cacheKey for pod's ENIInfo cache.

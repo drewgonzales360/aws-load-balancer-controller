@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	awssdk "github.com/aws/aws-sdk-go/aws"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	networking "k8s.io/api/networking/v1"
@@ -314,11 +314,11 @@ func Test_defaultReferenceIndexer_BuildServiceRefIndexes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			annotationParser := annotations.NewSuffixAnnotationParser("alb.ingress.kubernetes.io")
 			authConfigBuilder := NewDefaultAuthConfigBuilder(annotationParser)
-			enhancedBackendBuilder := NewDefaultEnhancedBackendBuilder(nil, annotationParser, nil)
+			enhancedBackendBuilder := NewDefaultEnhancedBackendBuilder(nil, annotationParser, nil, true, true)
 			i := &defaultReferenceIndexer{
 				enhancedBackendBuilder: enhancedBackendBuilder,
 				authConfigBuilder:      authConfigBuilder,
-				logger:                 &log.NullLogger{},
+				logger:                 logr.New(&log.NullLogSink{}),
 			}
 			got := i.BuildServiceRefIndexes(context.Background(), tt.args.ing)
 			assert.Equal(t, tt.want, got)
@@ -365,11 +365,11 @@ func Test_defaultReferenceIndexer_BuildSecretRefIndexes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			annotationParser := annotations.NewSuffixAnnotationParser("alb.ingress.kubernetes.io")
 			authConfigBuilder := NewDefaultAuthConfigBuilder(annotationParser)
-			enhancedBackendBuilder := NewDefaultEnhancedBackendBuilder(nil, annotationParser, nil)
+			enhancedBackendBuilder := NewDefaultEnhancedBackendBuilder(nil, annotationParser, nil, true, true)
 			i := &defaultReferenceIndexer{
 				enhancedBackendBuilder: enhancedBackendBuilder,
 				authConfigBuilder:      authConfigBuilder,
-				logger:                 &log.NullLogger{},
+				logger:                 logr.New(&log.NullLogSink{}),
 			}
 			got := i.BuildSecretRefIndexes(context.Background(), tt.args.ingOrSvc)
 			assert.Equal(t, tt.want, got)
